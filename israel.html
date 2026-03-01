@@ -63,6 +63,10 @@
     #toastTitle { font-family:Orbitron; letter-spacing:2px; color:var(--red); font-size:12px; }
     #toastText { margin-top:4px; font-size:16px; line-height:1.35; }
     #hint { position:absolute; right:12px; bottom:12px; color:rgba(159,179,209,.75); font-size:12px; background:rgba(3,8,16,.55); border:1px solid rgba(255,255,255,.08); padding:8px 10px; border-radius:10px; pointer-events:none; }
+    #info-popup { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); z-index:100; width:min(440px,88vw); max-height:80vh; overflow:auto; pointer-events:auto; background:rgba(3,8,16,.96); border:1px solid rgba(0,229,255,.35); border-radius:14px; box-shadow:0 0 48px rgba(0,229,255,.12), 0 0 120px rgba(0,0,0,.5); padding:20px 22px; }
+    #info-popup.hidden { display:none; }
+    #info-popup .popup-close { position:absolute; top:8px; right:12px; cursor:pointer; font-size:22px; color:var(--text2); background:none; border:none; font-family:Orbitron; }
+    #info-popup .popup-close:hover { color:var(--cyan); }
   </style>
 </head>
 <body>
@@ -139,10 +143,12 @@
     <div id="hazards" style="margin-top:8px;max-height:32vh;overflow:auto;border-top:1px solid var(--border);padding-top:6px"></div>
   </div>
 
+  <div id="info-popup" class="hidden"><button class="popup-close" onclick="closePopup()">✕</button><div id="info-popup-content"></div></div>
+
   <div id="hint" style="right:12px;bottom:12px;">גלילה: זום | לחיצה וגרירה: סיבוב/שיפוע | התרחק → תראה גם את הגלובוס</div>
 
   <script src="https://unpkg.com/satellite.js@5.0.1/dist/satellite.min.js"></script>
   <script src="sounds.js?v=6"></script>
-  <script src="israel.js?v=11"></script>
+  <script src="israel.js?v=13"></script>
 </body>
 </html>

@@ -205,45 +205,32 @@ function clearSatMarks() {
   satMarks = removeEntities(satMarks);
 }
 
-function addPulseAt(lon, lat, colorCss = '#ff1744') {
+function addPulseAt(lon, lat, colorCss = '#ff1744', areaName = '') {
   if (!viewer) return;
-  const start = performance.now();
-  const baseRadius = 12000;
-  const maxRadius = 65000;
-
   const color = Cesium.Color.fromCssColorString(colorCss);
+  const icon = makeSvgIcon('alert', 24, colorCss);
 
-  const e = viewer.entities.add({
+  const marker = viewer.entities.add({
+    position: Cesium.Cartesian3.fromDegrees(lon, lat, 0),
+    billboard: { image: icon, width: 42, height: 42 },
+    ellipse: { semiMajorAxis: 15000, semiMinorAxis: 15000, material: Cesium.Color.TRANSPARENT, outline: true, outlineColor: color.withAlpha(0.6), outlineWidth: 3 },
+    label: areaName ? { text: `🔴 ${areaName}`, font: 'bold 15px Rajdhani', fillColor: color, outlineColor: Cesium.Color.BLACK, outlineWidth: 3, style: Cesium.LabelStyle.FILL_AND_OUTLINE, pixelOffset: new Cesium.Cartesian2(26, 0), showBackground: true, backgroundColor: Cesium.Color.BLACK.withAlpha(0.85) } : undefined
+  });
+  pulsePrims.push(marker);
+
+  const start = performance.now();
+  const pulse = viewer.entities.add({
     position: Cesium.Cartesian3.fromDegrees(lon, lat, 0),
     ellipse: {
-      semiMajorAxis: new Cesium.CallbackProperty(() => {
-        const t = (performance.now() - start) / 1000;
-        const k = (t % 1.2) / 1.2;
-        return baseRadius + k * (maxRadius - baseRadius);
-      }, false),
-      semiMinorAxis: new Cesium.CallbackProperty(() => {
-        const t = (performance.now() - start) / 1000;
-        const k = (t % 1.2) / 1.2;
-        return baseRadius + k * (maxRadius - baseRadius);
-      }, false),
-      material: new Cesium.ColorMaterialProperty(new Cesium.CallbackProperty(() => {
-        const t = (performance.now() - start) / 1000;
-        const k = (t % 1.2) / 1.2;
-        const a = 0.42 * (1 - k);
-        return color.withAlpha(a);
-      }, false)),
+      semiMajorAxis: new Cesium.CallbackProperty(() => { const k = ((performance.now() - start) / 1000 % 1.5) / 1.5; return 12000 + k * 80000; }, false),
+      semiMinorAxis: new Cesium.CallbackProperty(() => { const k = ((performance.now() - start) / 1000 % 1.5) / 1.5; return 12000 + k * 80000; }, false),
+      material: new Cesium.ColorMaterialProperty(new Cesium.CallbackProperty(() => { const k = ((performance.now() - start) / 1000 % 1.5) / 1.5; return color.withAlpha(0.4 * (1 - k)); }, false)),
       outline: true,
-      outlineColor: new Cesium.CallbackProperty(() => {
-        const t = (performance.now() - start) / 1000;
-        const k = (t % 1.2) / 1.2;
-        return color.withAlpha(0.85 * (1 - k));
-      }, false),
+      outlineColor: new Cesium.CallbackProperty(() => { const k = ((performance.now() - start) / 1000 % 1.5) / 1.5; return color.withAlpha(0.8 * (1 - k)); }, false),
       height: 0
     }
   });
-
-  e._rcPulse = true;
-  pulsePrims.push(e);
+  pulsePrims.push(pulse);
 }
 
 function addPointAt(lon, lat, colorCss, label) {
@@ -515,7 +502,7 @@ function renderTrafficLayer() {
       billboard: { image: planeIcon, width: 44, height: 44, rotation: p.heading ? -Cesium.Math.toRadians(p.heading) : 0 },
       label: { text: `${p.callsign || p.icao24 || ''} ${p.country || ''}`, font: 'bold 14px Rajdhani', fillColor: Cesium.Color.YELLOW, outlineColor: Cesium.Color.BLACK, outlineWidth: 3, style: Cesium.LabelStyle.FILL_AND_OUTLINE, pixelOffset: new Cesium.Cartesian2(26, 0), distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 5000000) }
     });
-    if (e) trafficMarks.push(e);
+    if (e) { e._rcType = 'aviation'; e._rcData = p; trafficMarks.push(e); }
     if (p.heading !== undefined) {
       const hdg = (p.heading || 0) * Math.PI / 180;
       const t = viewer?.entities?.add?.({
@@ -542,7 +529,7 @@ function renderTrafficLayer() {
       billboard: { image: icon, width: sz, height: sz, rotation: s.heading ? -Cesium.Math.toRadians(s.heading) : 0 },
       label: { text: s.name || '', font: `bold ${isBig ? 14 : 12}px Rajdhani`, fillColor: Cesium.Color.fromCssColorString('#00bfa5'), outlineColor: Cesium.Color.BLACK, outlineWidth: 2, style: Cesium.LabelStyle.FILL_AND_OUTLINE, pixelOffset: new Cesium.Cartesian2(sz/2 + 6, 0), distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, isBig ? 5000000 : 2500000) }
     });
-    if (e) trafficMarks.push(e);
+    if (e) { e._rcType = 'ships'; e._rcData = s; trafficMarks.push(e); }
   });
 }
 
@@ -642,7 +629,7 @@ function renderSatellitesLayer() {
         billboard: { image: icon, width: sz, height: sz },
         label: { text: isISS ? `ISS ${x.geo.lat.toFixed(1)}° ${x.geo.lon.toFixed(1)}°` : (x.item.name || ''), font: `bold ${isISS ? 16 : 15}px Rajdhani`, fillColor: Cesium.Color.fromCssColorString(col), outlineColor: Cesium.Color.BLACK, outlineWidth: 3, style: Cesium.LabelStyle.FILL_AND_OUTLINE, pixelOffset: new Cesium.Cartesian2(sz/2 + 4, 0), showBackground: isISS, backgroundColor: isISS ? Cesium.Color.fromCssColorString('#1a0033').withAlpha(0.8) : undefined, distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 12000000) }
       });
-      if (e) satMarks.push(e);
+      if (e) { e._rcType = isISS ? 'iss' : 'satellite'; e._rcData = { ...x.item, geo: x.geo, altitude: x.geo.hKm }; satMarks.push(e); }
 
       if (hasTLE) {
         const trail = computeOrbitTrail(x.item, now, 50, 1.5);
@@ -664,7 +651,7 @@ function renderSatellitesLayer() {
         billboard: { image: issSvg, width: 52, height: 52 },
         label: { text: `ISS ${ig.lat.toFixed(1)}° ${ig.lon.toFixed(1)}°`, font: 'bold 16px Rajdhani', fillColor: Cesium.Color.fromCssColorString('#b388ff'), outlineColor: Cesium.Color.BLACK, outlineWidth: 3, style: Cesium.LabelStyle.FILL_AND_OUTLINE, pixelOffset: new Cesium.Cartesian2(30, 0), showBackground: true, backgroundColor: Cesium.Color.fromCssColorString('#1a0033').withAlpha(0.8) }
       });
-      if (e) satMarks.push(e);
+      if (e) { e._rcType = 'iss'; e._rcData = { name: 'ISS (ZARYA)', noradId: 25544, geo: ig, altitude: 408 }; satMarks.push(e); }
     }
   }
 
@@ -847,6 +834,7 @@ function renderGlobalHazardMarks() {
         billboard: { image: icon, width: iconSize, height: iconSize },
         label: { text: `RICHTER ${mag.toFixed(2)}\n${cut(x.place || '', 25)}`, font: 'bold 14px Rajdhani', fillColor: Cesium.Color.fromCssColorString(sevCol), outlineColor: Cesium.Color.BLACK, outlineWidth: 3, style: Cesium.LabelStyle.FILL_AND_OUTLINE, pixelOffset: new Cesium.Cartesian2(iconSize/2 + 8, 0), showBackground: true, backgroundColor: Cesium.Color.fromCssColorString('#111').withAlpha(0.9) }
       });
+      e._rcType = 'earthquake'; e._rcData = x;
       globalMarks.push(e);
       for (let r = 1; r <= 3; r++) {
         const ring = viewer.entities.add({
@@ -869,6 +857,7 @@ function renderGlobalHazardMarks() {
         point: { pixelSize: 10, color: Cesium.Color.fromCssColorString(col), outlineColor: Cesium.Color.BLACK, outlineWidth: 1 },
         label: { text: `${w.city || ''} ${Math.round(temp)}°C`, font: 'bold 14px Rajdhani', fillColor: Cesium.Color.WHITE, outlineColor: Cesium.Color.BLACK, outlineWidth: 2, style: Cesium.LabelStyle.FILL_AND_OUTLINE, pixelOffset: new Cesium.Cartesian2(12, 0), distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 6000000), showBackground: true, backgroundColor: Cesium.Color.fromCssColorString(col).withAlpha(0.3) }
       });
+      e._rcType = 'weather'; e._rcData = w;
       globalMarks.push(e);
     });
   }
@@ -885,6 +874,7 @@ function renderGlobalHazardMarks() {
         billboard: { image: icon, width: 40, height: 60, verticalOrigin: Cesium.VerticalOrigin.BOTTOM },
         label: { text: `${wh.toFixed(1)}m | ${b.waterTemp || '?'}°C`, font: 'bold 13px Rajdhani', fillColor: Cesium.Color.WHITE, outlineColor: Cesium.Color.BLACK, outlineWidth: 2, style: Cesium.LabelStyle.FILL_AND_OUTLINE, pixelOffset: new Cesium.Cartesian2(24, -30), distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 5000000) }
       });
+      e._rcType = 'marine'; e._rcData = b;
       globalMarks.push(e);
     });
   }
@@ -1018,6 +1008,107 @@ function renderAiPanel() {
   hist.innerHTML = allItems.slice(1).map((item, idx) =>
     `<div class="ai-item" data-ai-idx="${idx + 1}"><span class="${aiCatClass(item.sev)}">${escapeHtml(item.cat)}</span> ${escapeHtml(item.text)}${item.detail ? `<div style="font-size:11px;color:var(--text2);margin-top:1px">${escapeHtml(item.detail)}</div>` : ''}</div>`
   ).join('');
+}
+
+function initEntityClick() {
+  if (!viewer) return;
+  const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+  handler.setInputAction(click => {
+    const picked = viewer.scene.pick(click.position);
+    if (Cesium.defined(picked) && picked.id?._rcData) showInfoPopup(picked.id._rcData, picked.id._rcType);
+  }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+}
+function closePopup() { $('info-popup')?.classList.add('hidden'); }
+function showInfoPopup(d, type) {
+  const el = $('info-popup');
+  const content = $('info-popup-content');
+  if (!el || !content) return;
+  el.classList.remove('hidden');
+  let html = '';
+  if (type === 'earthquake') {
+    const mag = Number(d.magnitude || 0);
+    const sev = mag >= 8 ? 'קיצוני' : mag >= 7 ? 'חמור מאוד' : mag >= 6 ? 'חזק' : mag >= 5 ? 'בינוני' : mag >= 4 ? 'קל' : 'מינורי';
+    const sevColor = mag >= 6 ? '#ff1744' : mag >= 4.5 ? '#ff9100' : '#ffd600';
+    const tsunami = mag >= 6.5 && (d.depth || 999) < 70 ? 'גבוה' : mag >= 6 ? 'בינוני' : 'נמוך';
+    const tsuCol = tsunami === 'גבוה' ? '#ff1744' : tsunami === 'בינוני' ? '#ff9100' : '#00ff88';
+    html = `<div style="text-align:center;font-family:Orbitron;font-size:36px;font-weight:900;color:${sevColor};margin-bottom:6px">RICHTER ${mag.toFixed(2)}</div>
+      <div style="text-align:center;font-size:18px;margin-bottom:10px;color:${sevColor};font-family:Orbitron;letter-spacing:2px">${sev}</div>
+      <div style="text-align:center;font-size:18px;margin-bottom:14px">${d.place || 'לא ידוע'}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:15px;margin-bottom:10px">
+      <span style="color:var(--text2)">עומק</span><span>${d.depth || '?'} km</span>
+      <span style="color:var(--text2)">סיכון צונאמי</span><span style="color:${tsuCol}">${tsunami}</span>
+      <span style="color:var(--text2)">זמן</span><span>${d.time ? new Date(d.time).toLocaleString() : '?'}</span>
+      <span style="color:var(--text2)">קואורדינטות</span><span>${d.geo?.lat?.toFixed(3) || '?'} / ${d.geo?.lon?.toFixed(3) || '?'}</span></div>
+      <div style="font-size:13px;line-height:1.5;color:var(--text2);border-top:1px solid rgba(255,255,255,.12);padding-top:8px">
+        מדריך ריכטר: 4.0+ מורגש | 5.0+ סיכון מבני | 6.5+ פוטנציאל צונאמי אם רדוד.
+      </div>`;
+  } else if (type === 'weather') {
+    const t = d.temperature, w = d.windspeed || 0;
+    const col = t > 35 ? '#ff1744' : t > 25 ? '#ff9100' : t > 15 ? '#ffd600' : t > 5 ? '#00e5ff' : '#2196f3';
+    html = `<div style="text-align:center;font-family:Orbitron;font-size:32px;font-weight:900;color:${col};margin-bottom:8px">${Math.round(t)}°C</div>
+      <div style="text-align:center;font-size:20px;margin-bottom:14px">${d.city || 'לא ידוע'}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:15px">
+      <span style="color:var(--text2)">טמפרטורה</span><span style="color:${col}">${t}°C</span>
+      <span style="color:var(--text2)">רוח</span><span>${Math.round(w)} km/h</span>
+      <span style="color:var(--text2)">קואורדינטות</span><span>${d.geo?.lat?.toFixed(2) || '?'}, ${d.geo?.lon?.toFixed(2) || '?'}</span>
+      ${d.humidity !== undefined ? `<span style="color:var(--text2)">לחות</span><span>${d.humidity}%</span>` : ''}
+      </div>`;
+  } else if (type === 'marine') {
+    const wh = parseFloat(d.waveHeight) || 0;
+    const col = wh > 4 ? '#ff1744' : wh > 2 ? '#ff9100' : '#00bcd4';
+    html = `<div style="text-align:center;font-family:Orbitron;font-size:32px;font-weight:900;color:${col};margin-bottom:8px">${wh.toFixed(1)}m גלים</div>
+      <div style="text-align:center;font-size:18px;margin-bottom:14px">${d.station || 'תחנה ימית'}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:15px">
+      <span style="color:var(--text2)">גובה גלים</span><span style="color:${col}">${wh.toFixed(1)} m</span>
+      <span style="color:var(--text2)">טמפ\' מים</span><span>${d.waterTemp || '?'}°C</span>
+      <span style="color:var(--text2)">קואורדינטות</span><span>${d.geo?.lat?.toFixed(2) || '?'}, ${d.geo?.lon?.toFixed(2) || '?'}</span>
+      </div>
+      <div style="font-size:13px;line-height:1.5;color:var(--text2);border-top:1px solid rgba(255,255,255,.12);padding-top:8px;margin-top:10px">
+        גלים מעל 2m: סכנה לשייט קטן | מעל 4m: אזהרה ימית כללית | מעל 6m: סופה ימית.
+      </div>`;
+  } else if (type === 'satellite' || type === 'iss') {
+    const isISS = type === 'iss' || /ISS|ZARYA|25544/i.test(d.name || '');
+    const col = isISS ? '#7c4dff' : '#4fc3f7';
+    html = `<div style="text-align:center;font-family:Orbitron;font-size:24px;font-weight:900;color:${col};margin-bottom:8px">${isISS ? '🛰 ISS' : '◈ ' + (d.name || 'SAT')}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:15px;margin-top:10px">
+      <span style="color:var(--text2)">שם</span><span>${d.name || 'לא ידוע'}</span>
+      ${d.noradId ? `<span style="color:var(--text2)">NORAD ID</span><span>${d.noradId}</span>` : ''}
+      ${d.geo ? `<span style="color:var(--text2)">מיקום</span><span>${d.geo.lat?.toFixed(2) || '?'}°, ${d.geo.lon?.toFixed(2) || '?'}°</span>` : ''}
+      ${d.altitude ? `<span style="color:var(--text2)">גובה</span><span>${Math.round(d.altitude)} km</span>` : ''}
+      ${d.inclination ? `<span style="color:var(--text2)">הטיה</span><span>${d.inclination}°</span>` : ''}
+      ${d.meanMotion ? `<span style="color:var(--text2)">סיבובים/יום</span><span>${parseFloat(d.meanMotion).toFixed(2)}</span>` : ''}
+      </div>`;
+  } else if (type === 'aviation') {
+    html = `<div style="text-align:center;font-family:Orbitron;font-size:24px;font-weight:900;color:#ffd600;margin-bottom:8px">✈ ${d.callsign || d.icao24 || 'AIRCRAFT'}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:15px;margin-top:10px">
+      ${d.callsign ? `<span style="color:var(--text2)">קריאה</span><span>${d.callsign}</span>` : ''}
+      ${d.country ? `<span style="color:var(--text2)">מדינה</span><span>${d.country}</span>` : ''}
+      ${d.icao24 ? `<span style="color:var(--text2)">ICAO</span><span>${d.icao24}</span>` : ''}
+      <span style="color:var(--text2)">גובה</span><span>${d.altitude || d.geo?.alt || '?'} m</span>
+      ${d.heading !== undefined ? `<span style="color:var(--text2)">כיוון</span><span>${Math.round(d.heading)}°</span>` : ''}
+      ${d.velocity !== undefined ? `<span style="color:var(--text2)">מהירות</span><span>${Math.round(d.velocity)} m/s</span>` : ''}
+      <span style="color:var(--text2)">מיקום</span><span>${d.geo?.lat?.toFixed(3) || '?'}, ${d.geo?.lon?.toFixed(3) || '?'}</span>
+      </div>`;
+  } else if (type === 'ships') {
+    html = `<div style="text-align:center;font-family:Orbitron;font-size:24px;font-weight:900;color:#00bfa5;margin-bottom:8px">⛴ ${d.name || 'VESSEL'}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:15px;margin-top:10px">
+      ${d.name ? `<span style="color:var(--text2)">שם</span><span>${d.name}</span>` : ''}
+      ${d.mmsi ? `<span style="color:var(--text2)">MMSI</span><span>${d.mmsi}</span>` : ''}
+      ${d.shipType ? `<span style="color:var(--text2)">סוג</span><span>TYPE ${d.shipType}</span>` : ''}
+      ${d.heading !== undefined ? `<span style="color:var(--text2)">כיוון</span><span>${Math.round(d.heading)}°</span>` : ''}
+      ${d.speed !== undefined ? `<span style="color:var(--text2)">מהירות</span><span>${d.speed} kn</span>` : ''}
+      <span style="color:var(--text2)">מיקום</span><span>${d.geo?.lat?.toFixed(3) || '?'}, ${d.geo?.lon?.toFixed(3) || '?'}</span>
+      </div>`;
+  } else if (d._isAlert) {
+    const col = d.severity >= 4 ? '#ff1744' : d.severity >= 3 ? '#ff9100' : '#ffd600';
+    html = `<div style="text-align:center;font-family:Orbitron;font-size:30px;font-weight:900;color:${col};margin-bottom:8px">⚡ רמת התראה ${d.severity}</div>
+      <div style="text-align:center;font-size:18px;margin-bottom:14px">${d.category || 'מערכת'}</div>
+      <div style="font-size:16px;line-height:1.7;margin-bottom:12px">${d.summary || ''}</div>
+      <div style="font-size:13px;color:var(--text2)">ביטחון: ${((d.confidence || 0) * 100).toFixed(0)}%</div>`;
+  } else {
+    html = `<div style="font-size:16px;line-height:1.5">${JSON.stringify(d, null, 2).replace(/\n/g, '<br>')}</div>`;
+  }
+  content.innerHTML = html;
 }
 
 function refreshComposite() {
@@ -1200,13 +1291,13 @@ async function handleIsraelAlerts(d) {
     const el = document.getElementById(`migun-${idx}`);
     if (el) el.textContent = migun === null ? '---' : `${migun}s`;
     if (geo) {
-      addPulseAt(geo.lon, geo.lat, color);
+      addPulseAt(geo.lon, geo.lat, color, a);
     } else {
       const r1 = hash01(a);
       const r2 = hash01(a + 'x');
       const dLon = (r1 - 0.5) * 0.32;
       const dLat = (r2 - 0.5) * 0.22;
-      addPulseAt(ISRAEL_VIEW_3D.lon + dLon, ISRAEL_VIEW_3D.lat + dLat, color);
+      addPulseAt(ISRAEL_VIEW_3D.lon + dLon, ISRAEL_VIEW_3D.lat + dLat, color, a);
     }
   });
 
@@ -1215,12 +1306,9 @@ async function handleIsraelAlerts(d) {
     return;
   }
 
-  const allowFly = _mapMode === 'auto' || _mapMode === 'israel_flat';
   const firstGeo = await firstGeoPromise;
-  if (allowFly) {
-    if (firstGeo) focusGeo(firstGeo.lon, firstGeo.lat, Math.min(israelAlt, 900000));
-    else focusIsrael();
-  }
+  if (firstGeo) focusGeo(firstGeo.lon, firstGeo.lat, Math.min(israelAlt, 900000));
+  else if (_mapMode === 'auto' || _mapMode === 'israel_flat') focusIsrael();
 
   showToast(d.summary || (isPre ? 'הנחיה מקדימה' : 'התראת צבע אדום'));
   if (isPre) window.soundSystem?.alertInfo(); else window.soundSystem?.alertCritical();
@@ -1342,8 +1430,41 @@ async function fetchPublicISS() {
   } catch(_) {}
 }
 
+async function fetchPublicRedAlert() {
+  const sources = [
+    'https://www.oref.org.il/WarningMessages/alert/alerts.json',
+    'https://api.tzevaadom.co.il/notifications'
+  ];
+  for (const url of sources) {
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(4000) });
+      if (!r.ok) continue;
+      const text = await r.text();
+      if (!text || text.trim().length < 3) { handleIsraelAlerts({ active: false }).catch(() => {}); return; }
+      const d = JSON.parse(text);
+      if (Array.isArray(d)) {
+        if (!d.length) { handleIsraelAlerts({ active: false }).catch(() => {}); return; }
+        const first = d[0];
+        const areas = first.data ? (typeof first.data === 'string' ? first.data.split(',').map(s => s.trim()) : first.data) : (first.areas || []);
+        if (areas.length) {
+          handleIsraelAlerts({ active: true, id: `pub-${Date.now()}`, areas, desc: first.title || first.desc || '', category: first.cat || 1, source: 'public', timestamp: new Date().toISOString() }).catch(() => {});
+          return;
+        }
+      } else if (d && typeof d === 'object') {
+        if (d.id && d.data) {
+          const areas = typeof d.data === 'string' ? d.data.split(',').map(s => s.trim()) : (d.data || []);
+          if (areas.length) {
+            handleIsraelAlerts({ active: true, id: d.id || `pub-${Date.now()}`, areas, desc: d.title || '', category: d.cat || 1, source: 'public', timestamp: new Date().toISOString() }).catch(() => {});
+            return;
+          }
+        }
+      }
+    } catch(_) { continue; }
+  }
+}
+
 async function standaloneRefresh() {
-  await Promise.all([fetchPublicEarthquakes(), fetchPublicWeather(), fetchPublicSatellites(), fetchPublicMarine(), fetchPublicISS()]);
+  await Promise.all([fetchPublicEarthquakes(), fetchPublicWeather(), fetchPublicSatellites(), fetchPublicMarine(), fetchPublicISS(), fetchPublicRedAlert()]);
   refreshComposite();
 }
 
@@ -1366,6 +1487,7 @@ async function prime() {
 
 document.addEventListener('DOMContentLoaded', () => {
   initCesium();
+  setTimeout(initEntityClick, 2000);
   initWebSocket();
   prime();
   document.addEventListener('click', () => window.soundSystem?.init(), { once: true });
