@@ -997,7 +997,7 @@ function renderAiPanel() {
   if (cnt) cnt.textContent = allItems.length ? `${allItems.length}` : '';
 
   if (!allItems.length) {
-    cur.innerHTML = '<div style="color:var(--text2);font-size:12px">אין הודעות AI כרגע</div>';
+    cur.innerHTML = `<div style="color:var(--text2);font-size:12px">${_standalone ? 'טוען ניתוח מקומי...' : 'אין הודעות AI כרגע'}</div>`;
     hist.innerHTML = '';
     return;
   }
@@ -1498,6 +1498,8 @@ async function prime() {
   setConn(false);
   const connEl = $('conn');
   if (connEl) connEl.innerHTML = 'STANDALONE <span id="connDot" style="display:inline-block;width:8px;height:8px;border-radius:50%;margin-left:6px;background:#ff9100;box-shadow:0 0 10px rgba(255,145,0,.35)"></span>';
+  const aiLabel = document.querySelector('#aiPanel b');
+  if (aiLabel) aiLabel.textContent = '📊 LOCAL MONITOR';
   await standaloneRefresh();
 }
 
