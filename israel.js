@@ -1118,6 +1118,10 @@ function refreshComposite() {
   renderGlobalHazardMarks();
   updateDepthReadout();
   detectAnomalies();
+  if (window.localAnalysis) {
+    window.localAnalysis.run(live);
+    window.localAnalysis.feed(pushAiAlert);
+  }
   renderAiPanel();
 }
 
@@ -1430,36 +1434,48 @@ async function fetchPublicISS() {
   } catch(_) {}
 }
 
+function _corsWrap(url) {
+  return [
+    url,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+    `https://corsproxy.io/?${encodeURIComponent(url)}`,
+    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`
+  ];
+}
+
+function _parseRedAlertResponse(text) {
+  if (!text || text.trim().length < 3) return { active: false };
+  const d = JSON.parse(text);
+  if (Array.isArray(d)) {
+    if (!d.length) return { active: false };
+    const first = d[0];
+    const areas = first.data ? (typeof first.data === 'string' ? first.data.split(',').map(s => s.trim()) : first.data) : (first.areas || []);
+    if (areas.length) return { active: true, id: `pub-${Date.now()}`, areas, desc: first.title || first.desc || '', category: first.cat || 1, source: 'public', timestamp: new Date().toISOString() };
+  } else if (d && typeof d === 'object') {
+    if (d.id && d.data) {
+      const areas = typeof d.data === 'string' ? d.data.split(',').map(s => s.trim()) : (d.data || []);
+      if (areas.length) return { active: true, id: d.id || `pub-${Date.now()}`, areas, desc: d.title || '', category: d.cat || 1, source: 'public', timestamp: new Date().toISOString() };
+    }
+  }
+  return null;
+}
+
 async function fetchPublicRedAlert() {
-  const sources = [
+  const baseUrls = [
     'https://www.oref.org.il/WarningMessages/alert/alerts.json',
     'https://api.tzevaadom.co.il/notifications'
   ];
-  for (const url of sources) {
-    try {
-      const r = await fetch(url, { signal: AbortSignal.timeout(4000) });
-      if (!r.ok) continue;
-      const text = await r.text();
-      if (!text || text.trim().length < 3) { handleIsraelAlerts({ active: false }).catch(() => {}); return; }
-      const d = JSON.parse(text);
-      if (Array.isArray(d)) {
-        if (!d.length) { handleIsraelAlerts({ active: false }).catch(() => {}); return; }
-        const first = d[0];
-        const areas = first.data ? (typeof first.data === 'string' ? first.data.split(',').map(s => s.trim()) : first.data) : (first.areas || []);
-        if (areas.length) {
-          handleIsraelAlerts({ active: true, id: `pub-${Date.now()}`, areas, desc: first.title || first.desc || '', category: first.cat || 1, source: 'public', timestamp: new Date().toISOString() }).catch(() => {});
-          return;
-        }
-      } else if (d && typeof d === 'object') {
-        if (d.id && d.data) {
-          const areas = typeof d.data === 'string' ? d.data.split(',').map(s => s.trim()) : (d.data || []);
-          if (areas.length) {
-            handleIsraelAlerts({ active: true, id: d.id || `pub-${Date.now()}`, areas, desc: d.title || '', category: d.cat || 1, source: 'public', timestamp: new Date().toISOString() }).catch(() => {});
-            return;
-          }
-        }
-      }
-    } catch(_) { continue; }
+  for (const base of baseUrls) {
+    const urls = _corsWrap(base);
+    for (const url of urls) {
+      try {
+        const r = await fetch(url, { signal: AbortSignal.timeout(5000) });
+        if (!r.ok) continue;
+        const text = await r.text();
+        const result = _parseRedAlertResponse(text);
+        if (result) { handleIsraelAlerts(result).catch(() => {}); return; }
+      } catch(_) { continue; }
+    }
   }
 }
 
@@ -1490,7 +1506,8 @@ document.addEventListener('DOMContentLoaded', () => {
   setTimeout(initEntityClick, 2000);
   initWebSocket();
   prime();
-  document.addEventListener('click', () => window.soundSystem?.init(), { once: true });
+  const _initSound = () => { window.soundSystem?.init(); ['click','keydown','touchstart','pointerdown'].forEach(e => document.removeEventListener(e, _initSound)); };
+  ['click','keydown','touchstart','pointerdown'].forEach(e => document.addEventListener(e, _initSound, { once: true }));
 
   $('modeAuto')?.addEventListener('click', () => setMapMode('auto', false));
   $('modeIsrael')?.addEventListener('click', () => setMapMode('israel_flat', true));
