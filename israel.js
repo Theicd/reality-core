@@ -1118,7 +1118,7 @@ function refreshComposite() {
   renderGlobalHazardMarks();
   updateDepthReadout();
   detectAnomalies();
-  if (window.localAnalysis) {
+  if (_standalone && window.localAnalysis) {
     window.localAnalysis.run(live);
     window.localAnalysis.feed(pushAiAlert);
   }
@@ -1320,6 +1320,7 @@ async function handleIsraelAlerts(d) {
 }
 
 function initWebSocket() {
+  if (_standalone) return;
   try {
     const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
     ws = new WebSocket(`${wsProto}://${location.host}/ws`);
@@ -1328,7 +1329,7 @@ function initWebSocket() {
       try { ws.send(JSON.stringify({ action: 'get_data' })); } catch(_) {}
       try { ws.send(JSON.stringify({ action: 'get_alerts' })); } catch(_) {}
     };
-    ws.onclose = () => { setConn(false); setTimeout(initWebSocket, 3000); };
+    ws.onclose = () => { setConn(false); if (!_standalone) setTimeout(initWebSocket, 3000); };
     ws.onmessage = (msg) => {
       try {
         const ev = JSON.parse(msg.data);
@@ -1349,7 +1350,7 @@ function initWebSocket() {
         refreshComposite();
       } catch(e) {}
     };
-  } catch(e) { setTimeout(initWebSocket, 3000); }
+  } catch(e) { if (!_standalone) setTimeout(initWebSocket, 3000); }
 }
 
 let _standalone = false;
@@ -1389,8 +1390,8 @@ async function fetchPublicWeather() {
 
 async function fetchPublicSatellites() {
   try {
-    const r = await fetch('https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle');
-    const text = await r.text();
+    const text = await _corsFetch('https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle');
+    if (!text) return;
     const lines = text.trim().split('\n');
     const items = [];
     for (let i = 0; i + 2 < lines.length; i += 3) {
@@ -1409,8 +1410,8 @@ async function fetchPublicSatellites() {
 
 async function fetchPublicMarine() {
   try {
-    const r = await fetch('https://www.ndbc.noaa.gov/data/latest_obs/latest_obs.txt');
-    const text = await r.text();
+    const text = await _corsFetch('https://www.ndbc.noaa.gov/data/latest_obs/latest_obs.txt');
+    if (!text) return;
     const lines = text.trim().split('\n');
     const items = [];
     for (let i = 2; i < lines.length && items.length < 80; i++) {
@@ -1434,13 +1435,22 @@ async function fetchPublicISS() {
   } catch(_) {}
 }
 
-function _corsWrap(url) {
-  return [
-    url,
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-    `https://corsproxy.io/?${encodeURIComponent(url)}`,
-    `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`
+async function _corsFetch(url, timeout = 6000) {
+  const proxies = [
+    u => u,
+    u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+    u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
+    u => `https://corsproxy.io/?${encodeURIComponent(u)}`
   ];
+  for (const proxy of proxies) {
+    try {
+      const r = await fetch(proxy(url), { signal: AbortSignal.timeout(timeout) });
+      if (!r.ok) continue;
+      const text = await r.text();
+      if (text && text.length > 1) return text;
+    } catch(_) {}
+  }
+  return null;
 }
 
 function _parseRedAlertResponse(text) {
@@ -1466,16 +1476,11 @@ async function fetchPublicRedAlert() {
     'https://api.tzevaadom.co.il/notifications'
   ];
   for (const base of baseUrls) {
-    const urls = _corsWrap(base);
-    for (const url of urls) {
-      try {
-        const r = await fetch(url, { signal: AbortSignal.timeout(5000) });
-        if (!r.ok) continue;
-        const text = await r.text();
-        const result = _parseRedAlertResponse(text);
-        if (result) { handleIsraelAlerts(result).catch(() => {}); return; }
-      } catch(_) { continue; }
-    }
+    try {
+      const text = await _corsFetch(base, 5000);
+      const result = _parseRedAlertResponse(text);
+      if (result) { handleIsraelAlerts(result).catch(() => {}); return; }
+    } catch(_) {}
   }
 }
 
@@ -1503,11 +1508,11 @@ async function prime() {
   await standaloneRefresh();
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   initCesium();
   setTimeout(initEntityClick, 2000);
-  initWebSocket();
-  prime();
+  await prime();
+  if (!_standalone) initWebSocket();
   const _initSound = () => { window.soundSystem?.init(); ['click','keydown','touchstart','pointerdown'].forEach(e => document.removeEventListener(e, _initSound)); };
   ['click','keydown','touchstart','pointerdown'].forEach(e => document.addEventListener(e, _initSound, { once: true }));
 
