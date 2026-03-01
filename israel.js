@@ -1415,7 +1415,7 @@ async function fetchPublicWeather() {
 
 async function fetchPublicSatellites() {
   try {
-    const text = await _corsFetch('https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle');
+    const text = await _corsFetch('https://celestrak.org/NORAD/elements/gp.php?GROUP=visual&FORMAT=tle', 10000);
     if (!text) return;
     const lines = text.trim().split('\n');
     const items = [];
@@ -1427,7 +1427,7 @@ async function fetchPublicSatellites() {
         const noradId = parseInt(tle1.substring(2, 7));
         items.push({ name, noradId, tle1, tle2 });
       }
-      if (items.length >= 300) break;
+      if (items.length >= 200) break;
     }
     if (items.length) live.satellites = { timestamp: new Date().toISOString(), items };
   } catch(_) {}
@@ -1435,19 +1435,23 @@ async function fetchPublicSatellites() {
 
 async function fetchPublicMarine() {
   try {
-    const text = await _corsFetch('https://www.ndbc.noaa.gov/data/latest_obs/latest_obs.txt');
-    if (!text) return;
-    const lines = text.trim().split('\n');
-    const items = [];
-    for (let i = 2; i < lines.length && items.length < 80; i++) {
-      const cols = lines[i].trim().split(/\s+/);
-      if (cols.length < 14) continue;
-      const lat = parseFloat(cols[6]); const lon = parseFloat(cols[7]);
-      const wh = parseFloat(cols[8]); const wTemp = parseFloat(cols[14]);
-      if (Number.isFinite(lat) && Number.isFinite(lon) && Number.isFinite(wh) && wh > 0) {
-        items.push({ station: cols[0], geo: { lat, lon }, waveHeight: wh, waterTemp: Number.isFinite(wTemp) ? wTemp : null });
-      }
-    }
+    const pts = [
+      {lat:32.0,lon:34.2,n:'Med-TLV'},{lat:33.0,lon:34.0,n:'Med-Haifa'},{lat:29.5,lon:34.9,n:'RedSea-Eilat'},
+      {lat:35.0,lon:18.0,n:'Med-Central'},{lat:36.0,lon:28.0,n:'Aegean'},{lat:34.0,lon:25.0,n:'Med-Crete'},
+      {lat:41.0,lon:29.0,n:'BlackSea'},{lat:25.0,lon:37.0,n:'RedSea-N'},{lat:24.0,lon:55.0,n:'PersianGulf'},
+      {lat:12.0,lon:45.0,n:'GulfAden'},{lat:40.0,lon:-30.0,n:'Atlantic-N'},{lat:35.0,lon:140.0,n:'Pacific-JP'},
+      {lat:25.0,lon:-90.0,n:'GulfMexico'},{lat:55.0,lon:-5.0,n:'NorthSea'},{lat:10.0,lon:80.0,n:'Indian'},
+      {lat:-35.0,lon:150.0,n:'Tasman'},{lat:0.0,lon:-25.0,n:'Atlantic-Eq'},{lat:-10.0,lon:50.0,n:'Indian-W'}
+    ];
+    const lats = pts.map(p=>p.lat).join(','), lons = pts.map(p=>p.lon).join(',');
+    const r = await fetch(`https://marine-api.open-meteo.com/v1/marine?latitude=${lats}&longitude=${lons}&current=wave_height,wave_period`);
+    const d = await r.json();
+    const arr = Array.isArray(d) ? d : [d];
+    const items = arr.map((m, i) => {
+      const wh = m?.current?.wave_height;
+      if (!Number.isFinite(wh) || wh <= 0) return null;
+      return { station: pts[i]?.n || `P${i}`, geo: { lat: pts[i].lat, lon: pts[i].lon }, waveHeight: wh, waterTemp: null };
+    }).filter(Boolean);
     if (items.length) live.marine = { timestamp: new Date().toISOString(), items };
   } catch(_) {}
 }
@@ -1460,26 +1464,17 @@ async function fetchPublicISS() {
   } catch(_) {}
 }
 
-async function _corsFetch(url, timeout = 6000) {
-  // Try allorigins JSON mode first (most reliable)
-  try {
-    const r = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`, { signal: AbortSignal.timeout(timeout) });
-    if (r.ok) { const j = await r.json(); if (j?.contents) return j.contents; }
-  } catch(_) {}
-  // Fallback proxies
-  const proxies = [
-    u => u,
-    u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
-    u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
-    u => `https://corsproxy.io/?${encodeURIComponent(u)}`
+async function _corsFetch(url, timeout = 8000) {
+  const enc = encodeURIComponent(url);
+  const attempts = [
+    () => fetch(`https://thingproxy.freeboard.io/fetch/${url}`, { signal: AbortSignal.timeout(timeout) }).then(r => { if (!r.ok) throw 0; return r.text(); }),
+    () => fetch(`https://corsproxy.io/?${enc}`, { signal: AbortSignal.timeout(timeout) }).then(r => { if (!r.ok) throw 0; return r.text(); }),
+    () => fetch(`https://api.allorigins.win/get?url=${enc}`, { signal: AbortSignal.timeout(timeout) }).then(r => { if (!r.ok) throw 0; return r.json(); }).then(j => j?.contents || ''),
+    () => fetch(`https://api.codetabs.com/v1/proxy?quest=${enc}`, { signal: AbortSignal.timeout(timeout) }).then(r => { if (!r.ok) throw 0; return r.text(); }),
+    () => fetch(url, { signal: AbortSignal.timeout(timeout) }).then(r => { if (!r.ok) throw 0; return r.text(); })
   ];
-  for (const proxy of proxies) {
-    try {
-      const r = await fetch(proxy(url), { signal: AbortSignal.timeout(timeout) });
-      if (!r.ok) continue;
-      const text = await r.text();
-      if (text && text.length > 1) return text;
-    } catch(_) {}
+  for (const attempt of attempts) {
+    try { const t = await attempt(); if (t && t.length > 1) return t; } catch(_) {}
   }
   return null;
 }
