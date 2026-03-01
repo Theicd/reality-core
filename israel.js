@@ -677,7 +677,7 @@ function severityTag(sev) {
 function updateGaugeCards() {
   const eqAll = Array.isArray(live.earthquake?.items) ? live.earthquake.items : [];
   const eqNear = eqAll.filter(x => x.geo && (inBounds(x.geo, REGION_BOUNDS) || inBounds(x.geo, RIFT_BOUNDS))).sort((a, b) => (n(b.magnitude) || 0) - (n(a.magnitude) || 0));
-  const topEq = eqNear[0];
+  const topEq = eqNear[0] || eqAll.sort((a, b) => (n(b.magnitude) || 0) - (n(a.magnitude) || 0))[0];
   if (topEq) {
     const mag = n(topEq.magnitude) || 0;
     const depth = n(topEq.depth);
@@ -1390,9 +1390,32 @@ async function fetchPublicEarthquakes() {
   } catch(_) {}
 }
 
+async function fetchPublicSpaceWeather() {
+  try {
+    const [kpR, swR] = await Promise.all([
+      fetch('https://services.swpc.noaa.gov/products/noaa-planetary-k-index-forecast.json', { signal: AbortSignal.timeout(6000) }).then(r => r.json()).catch(() => null),
+      fetch('https://services.swpc.noaa.gov/products/solar-wind/plasma-1-day.json', { signal: AbortSignal.timeout(6000) }).then(r => r.json()).catch(() => null)
+    ]);
+    const sw = {};
+    if (Array.isArray(kpR) && kpR.length > 1) {
+      const obs = kpR.filter(r => r[2] === 'observed').pop() || kpR[kpR.length - 1];
+      sw.kpIndex = parseFloat(obs[1]) || 0;
+    }
+    if (Array.isArray(swR) && swR.length > 2) {
+      const last = swR[swR.length - 1];
+      sw.solarWindSpeed = parseFloat(last[2]) || null;
+      sw.solarWindDensity = parseFloat(last[1]) || null;
+    }
+    if (sw.kpIndex !== undefined) live.space_weather = { ...sw, timestamp: new Date().toISOString() };
+  } catch(_) {}
+}
+
 async function fetchPublicWeather() {
   try {
-    const cities = [
+    const cities = _standalone ? [
+      { name:'Tel Aviv', lat:32.08, lon:34.78 }, { name:'Jerusalem', lat:31.77, lon:35.21 }, { name:'Haifa', lat:32.79, lon:34.99 },
+      { name:'Eilat', lat:29.56, lon:34.95 }, { name:'Amman', lat:31.95, lon:35.93 }, { name:'Cairo', lat:30.04, lon:31.24 }
+    ] : [
       { name:'Tel Aviv', lat:32.08, lon:34.78 }, { name:'Jerusalem', lat:31.77, lon:35.21 }, { name:'Haifa', lat:32.79, lon:34.99 },
       { name:'Cairo', lat:30.04, lon:31.24 }, { name:'Amman', lat:31.95, lon:35.93 }, { name:'Beirut', lat:33.89, lon:35.50 },
       { name:'Istanbul', lat:41.01, lon:28.98 }, { name:'Riyadh', lat:24.69, lon:46.72 }, { name:'Dubai', lat:25.20, lon:55.27 },
@@ -1412,9 +1435,18 @@ async function fetchPublicWeather() {
     }).filter(x => x.geo && x.temperature !== undefined);
     if (items.length) live.weather = { timestamp: new Date().toISOString(), items };
   } catch(_) {}
+  if (!live.weather && _standalone) {
+    try {
+      const r = await fetch('https://wttr.in/Tel+Aviv?format=j1', { signal: AbortSignal.timeout(6000) });
+      const d = await r.json();
+      const cc = d?.current_condition?.[0];
+      if (cc) live.weather = { timestamp: new Date().toISOString(), items: [{ city: 'Tel Aviv', temperature: parseFloat(cc.temp_C), windspeed: parseFloat(cc.windspeedKmph), humidity: parseFloat(cc.humidity), geo: { lat: 32.08, lon: 34.78 } }] };
+    } catch(_) {}
+  }
 }
 
 async function fetchPublicSatellites() {
+  if (_standalone) return;
   try {
     const text = await _corsFetch('https://celestrak.org/NORAD/elements/gp.php?GROUP=visual&FORMAT=tle', 10000);
     if (!text) return;
@@ -1436,7 +1468,9 @@ async function fetchPublicSatellites() {
 
 async function fetchPublicMarine() {
   try {
-    const pts = [
+    const pts = _standalone ? [
+      {lat:32.0,lon:34.2,n:'Med-TLV'},{lat:33.0,lon:34.0,n:'Med-Haifa'},{lat:29.5,lon:34.9,n:'RedSea-Eilat'},{lat:35.0,lon:18.0,n:'Med-Central'}
+    ] : [
       {lat:32.0,lon:34.2,n:'Med-TLV'},{lat:33.0,lon:34.0,n:'Med-Haifa'},{lat:29.5,lon:34.9,n:'RedSea-Eilat'},
       {lat:35.0,lon:18.0,n:'Med-Central'},{lat:36.0,lon:28.0,n:'Aegean'},{lat:34.0,lon:25.0,n:'Med-Crete'},
       {lat:41.0,lon:29.0,n:'BlackSea'},{lat:25.0,lon:37.0,n:'RedSea-N'},{lat:24.0,lon:55.0,n:'PersianGulf'},
@@ -1523,10 +1557,15 @@ async function fetchPublicRedAlert() {
   console.log('[RedAlert] all paths failed');
 }
 
+let _standaloneRunning = false;
 async function standaloneRefresh() {
-  await Promise.all([fetchPublicEarthquakes(), fetchPublicWeather(), fetchPublicSatellites(), fetchPublicMarine(), fetchPublicISS(), fetchPublicRedAlert()]);
-  refreshComposite();
-  if (_standalone) setTimeout(standaloneRefresh, 30000);
+  if (_standaloneRunning) return;
+  _standaloneRunning = true;
+  try {
+    await Promise.all([fetchPublicEarthquakes(), fetchPublicWeather(), fetchPublicMarine(), fetchPublicISS(), fetchPublicRedAlert(), fetchPublicSpaceWeather()]);
+    refreshComposite();
+  } catch(_) {}
+  _standaloneRunning = false;
 }
 
 async function prime() {
@@ -1639,10 +1678,6 @@ setInterval(() => {
   refreshComposite();
 }, 1500);
 
-let _lastStandaloneFetch = 0;
 setInterval(() => {
-  if (_standalone && Date.now() - _lastStandaloneFetch > 60000) {
-    _lastStandaloneFetch = Date.now();
-    standaloneRefresh();
-  }
-}, 10000);
+  if (_standalone) standaloneRefresh();
+}, 180000);
