@@ -1,4 +1,5 @@
 const API = `${location.origin}/api`;
+const _PROXY = '';  // Set to your Cloudflare Worker URL, e.g. 'https://my-proxy.workers.dev'
 
 let ws = null;
 let viewer = null;
@@ -1464,13 +1465,12 @@ async function fetchPublicISS() {
   } catch(_) {}
 }
 
-async function _corsFetch(url, timeout = 8000) {
+async function _corsFetch(url, timeout = 10000) {
   const enc = encodeURIComponent(url);
   const attempts = [
-    () => fetch(`https://thingproxy.freeboard.io/fetch/${url}`, { signal: AbortSignal.timeout(timeout) }).then(r => { if (!r.ok) throw 0; return r.text(); }),
-    () => fetch(`https://corsproxy.io/?${enc}`, { signal: AbortSignal.timeout(timeout) }).then(r => { if (!r.ok) throw 0; return r.text(); }),
+    ..._PROXY ? [() => fetch(`${_PROXY}?url=${enc}`, { signal: AbortSignal.timeout(timeout) }).then(r => { if (!r.ok) throw 0; return r.text(); })] : [],
     () => fetch(`https://api.allorigins.win/get?url=${enc}`, { signal: AbortSignal.timeout(timeout) }).then(r => { if (!r.ok) throw 0; return r.json(); }).then(j => j?.contents || ''),
-    () => fetch(`https://api.codetabs.com/v1/proxy?quest=${enc}`, { signal: AbortSignal.timeout(timeout) }).then(r => { if (!r.ok) throw 0; return r.text(); }),
+    () => fetch(`https://api.codetabs.com/v1/proxy/?quest=${enc}`, { signal: AbortSignal.timeout(timeout) }).then(r => { if (!r.ok) throw 0; return r.text(); }),
     () => fetch(url, { signal: AbortSignal.timeout(timeout) }).then(r => { if (!r.ok) throw 0; return r.text(); })
   ];
   for (const attempt of attempts) {
@@ -1481,33 +1481,46 @@ async function _corsFetch(url, timeout = 8000) {
 
 function _parseRedAlertResponse(text) {
   if (!text || text.trim().length < 3) return { active: false };
-  const d = JSON.parse(text);
-  if (Array.isArray(d)) {
-    if (!d.length) return { active: false };
-    const first = d[0];
-    const areas = first.data ? (typeof first.data === 'string' ? first.data.split(',').map(s => s.trim()) : first.data) : (first.areas || []);
-    if (areas.length) return { active: true, id: `pub-${Date.now()}`, areas, desc: first.title || first.desc || '', category: first.cat || 1, source: 'public', timestamp: new Date().toISOString() };
-  } else if (d && typeof d === 'object') {
-    if (d.id && d.data) {
-      const areas = typeof d.data === 'string' ? d.data.split(',').map(s => s.trim()) : (d.data || []);
-      if (areas.length) return { active: true, id: d.id || `pub-${Date.now()}`, areas, desc: d.title || '', category: d.cat || 1, source: 'public', timestamp: new Date().toISOString() };
+  try {
+    const d = JSON.parse(text);
+    if (Array.isArray(d)) {
+      if (!d.length) return { active: false };
+      const first = d[0];
+      const areas = first.cities || first.data
+        ? (first.cities || (typeof first.data === 'string' ? first.data.split(',').map(s => s.trim()) : first.data))
+        : (first.areas || []);
+      if (areas.length) return { active: true, id: first.notificationId || first.id || `pub-${Date.now()}`, areas, desc: first.title || first.desc || '', category: first.cat || first.threat || 1, source: 'tzevaadom', timestamp: new Date().toISOString() };
+    } else if (d && typeof d === 'object') {
+      if (d.data || d.cities) {
+        const areas = d.cities || (typeof d.data === 'string' ? d.data.split(',').map(s => s.trim()) : (d.data || []));
+        if (areas.length) return { active: true, id: d.id || `pub-${Date.now()}`, areas, desc: d.title || '', category: d.cat || d.threat || 1, source: 'tzevaadom', timestamp: new Date().toISOString() };
+      }
     }
-  }
-  return null;
+  } catch(_) {}
+  return { active: false };
 }
 
 async function fetchPublicRedAlert() {
-  const baseUrls = [
-    'https://www.oref.org.il/WarningMessages/alert/alerts.json',
-    'https://api.tzevaadom.co.il/notifications'
+  const tzeva = 'https://api.tzevaadom.co.il/notifications';
+  const enc = encodeURIComponent(tzeva);
+  const paths = [
+    ..._PROXY ? [{ name: 'proxy', fn: () => fetch(`${_PROXY}?url=${enc}`, { signal: AbortSignal.timeout(6000) }).then(r => { if (!r.ok) throw 0; return r.text(); }) }] : [],
+    { name: 'allorigins', fn: () => fetch(`https://api.allorigins.win/get?url=${enc}`, { signal: AbortSignal.timeout(8000) }).then(r => { if (!r.ok) throw 0; return r.json(); }).then(j => j?.contents || '') },
+    { name: 'codetabs', fn: () => fetch(`https://api.codetabs.com/v1/proxy/?quest=${enc}`, { signal: AbortSignal.timeout(8000) }).then(r => { if (!r.ok) throw 0; return r.text(); }) },
+    { name: 'direct', fn: () => fetch(tzeva, { signal: AbortSignal.timeout(5000) }).then(r => { if (!r.ok) throw 0; return r.text(); }) }
   ];
-  for (const base of baseUrls) {
+  for (const { name, fn } of paths) {
     try {
-      const text = await _corsFetch(base, 5000);
+      const text = await fn();
       const result = _parseRedAlertResponse(text);
-      if (result) { handleIsraelAlerts(result).catch(() => {}); return; }
-    } catch(_) {}
+      if (result) {
+        console.log(`[RedAlert] ✓ ${name} → active:${result.active}`);
+        handleIsraelAlerts(result).catch(() => {});
+        return;
+      }
+    } catch(e) { console.log(`[RedAlert] ✗ ${name}: ${e?.message || e}`); }
   }
+  console.log('[RedAlert] all paths failed');
 }
 
 async function standaloneRefresh() {
@@ -1517,15 +1530,17 @@ async function standaloneRefresh() {
 }
 
 async function prime() {
-  try {
-    const [all, alerts, aiHist, aiNow] = await Promise.all([
-      fetch(`${API}/data`).then(r => r.json()).catch(() => null),
-      fetch(`${API}/alerts?min_severity=2`).then(r => r.json()).catch(() => null),
-      fetch(`${API}/ai/history?limit=10`).then(r => r.json()).catch(() => null),
-      fetch(`${API}/ai/analysis`).then(r => r.json()).catch(() => null)
-    ]);
-    if (all && !all.error) { absorbAllData(all); refreshComposite(); return; }
-  } catch(e) {}
+  if (!location.hostname.endsWith('github.io')) {
+    try {
+      const [all, alerts, aiHist, aiNow] = await Promise.all([
+        fetch(`${API}/data`).then(r => r.json()).catch(() => null),
+        fetch(`${API}/alerts?min_severity=2`).then(r => r.json()).catch(() => null),
+        fetch(`${API}/ai/history?limit=10`).then(r => r.json()).catch(() => null),
+        fetch(`${API}/ai/analysis`).then(r => r.json()).catch(() => null)
+      ]);
+      if (all && !all.error) { absorbAllData(all); refreshComposite(); return; }
+    } catch(e) {}
+  }
   _standalone = true;
   setConn(false);
   const connEl = $('conn');
