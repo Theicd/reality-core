@@ -8,6 +8,7 @@ let israelAlt = 750000;
 
 let lastAlertId = '';
 let pulsePrims = [];
+let _lastActiveAreas = [];
 let globalMarks = [];
 let _globalSig = '';
 let _preferOrefUntil = 0;
@@ -205,16 +206,17 @@ function clearSatMarks() {
   satMarks = removeEntities(satMarks);
 }
 
-function addPulseAt(lon, lat, colorCss = '#ff1744', areaName = '') {
+function addPulseAt(lon, lat, colorCss = '#ff1744', areaName = '', isClear = false) {
   if (!viewer) return;
   const color = Cesium.Color.fromCssColorString(colorCss);
   const icon = makeSvgIcon('alert', 24, colorCss);
+  const emoji = isClear ? '✅' : '🔴';
 
   const marker = viewer.entities.add({
     position: Cesium.Cartesian3.fromDegrees(lon, lat, 0),
     billboard: { image: icon, width: 42, height: 42 },
     ellipse: { semiMajorAxis: 15000, semiMinorAxis: 15000, material: Cesium.Color.TRANSPARENT, outline: true, outlineColor: color.withAlpha(0.6), outlineWidth: 3 },
-    label: areaName ? { text: `🔴 ${areaName}`, font: 'bold 15px Rajdhani', fillColor: color, outlineColor: Cesium.Color.BLACK, outlineWidth: 3, style: Cesium.LabelStyle.FILL_AND_OUTLINE, pixelOffset: new Cesium.Cartesian2(26, 0), showBackground: true, backgroundColor: Cesium.Color.BLACK.withAlpha(0.85) } : undefined
+    label: areaName ? { text: `${emoji} ${areaName}`, font: 'bold 15px Rajdhani', fillColor: color, outlineColor: Cesium.Color.BLACK, outlineWidth: 3, style: Cesium.LabelStyle.FILL_AND_OUTLINE, pixelOffset: new Cesium.Cartesian2(26, 0), showBackground: true, backgroundColor: Cesium.Color.BLACK.withAlpha(0.85) } : undefined
   });
   pulsePrims.push(marker);
 
@@ -1138,7 +1140,7 @@ function absorbAllData(all) {
   if (all.israel_alerts) handleIsraelAlerts(all.israel_alerts).catch(() => {});
 }
 
-function renderAreas(allAreas, isPre = false) {
+function renderAreas(allAreas, isPre = false, isClear = false) {
   const box = $('areas');
   if (!box) return;
   const areas = filterAreas(allAreas || []);
@@ -1151,10 +1153,10 @@ function renderAreas(allAreas, isPre = false) {
       : '<div style="color:rgba(159,179,209,.8);padding:10px 0">אין התרעות פעילות כרגע</div>';
     return;
   }
-  const pillClass = isPre ? 'amber' : 'red';
-  const pillText = isPre ? 'PRE' : 'RED';
+  const pillClass = isClear ? 'green' : (isPre ? 'amber' : 'red');
+  const pillText = isClear ? 'CLEAR' : (isPre ? 'PRE' : 'RED');
   box.innerHTML = areas.map((a, i) => (
-    `<div class="area" data-area-idx="${i}" style="cursor:pointer"><span class="pill ${pillClass}">${pillText}</span><span class="areaName">${escapeHtml(a)}</span><span class="pill" id="migun-${i}" style="margin-right:auto">---</span></div>`
+    `<div class="area" data-area-idx="${i}" style="cursor:pointer"><span class="pill ${pillClass}">${pillText}</span><span class="areaName">${escapeHtml(a)}</span><span class="pill" id="migun-${i}" style="margin-right:auto">${isClear ? '✅' : '---'}</span></div>`
   )).join('');
 }
 
@@ -1236,22 +1238,44 @@ async function handleIsraelAlerts(d) {
   }
 
   if (!d?.active) {
+    const hadActive = lastAlertId && _lastActiveAreas.length > 0;
     lastAlertId = '';
     currentIsraelAlert = { ...(d || {}), active: false };
     clearPulses();
-    if (instr) instr.textContent = '';
     if (d?.source === 'oref') _preferOrefUntil = 0;
     const head = document.querySelector('#alertHead b');
-    if (head) { head.textContent = 'צבע אדום - ישראל'; head.style.color = 'var(--red)'; }
-    const toastTitle = $('toastTitle');
-    if (toastTitle) toastTitle.textContent = 'התראה נכנסת';
-    const toastInner = $('toastInner');
-    if (toastInner) {
-      toastInner.style.borderColor = 'rgba(255,23,68,.55)';
-      toastInner.style.background = 'rgba(255,23,68,.12)';
-      toastInner.style.boxShadow = '0 0 32px rgba(255,23,68,.14)';
+    if (hadActive) {
+      if (head) { head.textContent = '✅ ניתן לצאת מהמרחב המוגן'; head.style.color = '#00e676'; }
+      if (instr) instr.textContent = 'ההתרעה הסתיימה - ניתן לצאת בזהירות';
+      const toastTitle = $('toastTitle');
+      if (toastTitle) toastTitle.textContent = '✅ ניתן לצאת';
+      const toastInner = $('toastInner');
+      if (toastInner) {
+        toastInner.style.borderColor = 'rgba(0,230,118,.55)';
+        toastInner.style.background = 'rgba(0,230,118,.12)';
+        toastInner.style.boxShadow = '0 0 32px rgba(0,230,118,.14)';
+      }
+      showToast('✅ ניתן לצאת מהמרחב המוגן');
+      window.soundSystem?.alertInfo();
+      renderAreas(_lastActiveAreas, false, true);
+      _lastActiveAreas.forEach(async (a) => {
+        const geo = await getAreaGeo(a);
+        if (geo) addPulseAt(geo.lon, geo.lat, '#00e676', a, true);
+      });
+      setTimeout(() => { clearPulses(); renderAreas([]); _lastActiveAreas = []; if (head) { head.textContent = 'צבע אדום - ישראל'; head.style.color = 'var(--red)'; } if (instr) instr.textContent = ''; }, 300000);
+    } else {
+      if (head) { head.textContent = 'צבע אדום - ישראל'; head.style.color = 'var(--red)'; }
+      if (instr) instr.textContent = '';
+      const toastTitle = $('toastTitle');
+      if (toastTitle) toastTitle.textContent = 'התראה נכנסת';
+      const toastInner = $('toastInner');
+      if (toastInner) {
+        toastInner.style.borderColor = 'rgba(255,23,68,.55)';
+        toastInner.style.background = 'rgba(255,23,68,.12)';
+        toastInner.style.boxShadow = '0 0 32px rgba(255,23,68,.14)';
+      }
+      renderAreas([]);
     }
-    renderAreas([]);
     renderHazardsPanel();
     return;
   }
@@ -1284,6 +1308,7 @@ async function handleIsraelAlerts(d) {
   clearPulses();
 
   const allAreas = Array.isArray(d.areas) ? d.areas : [];
+  _lastActiveAreas = [...allAreas];
   const areas = filterAreas(allAreas);
   const color = isPre ? '#ff9100' : '#ff1744';
 
@@ -1436,6 +1461,12 @@ async function fetchPublicISS() {
 }
 
 async function _corsFetch(url, timeout = 6000) {
+  // Try allorigins JSON mode first (most reliable)
+  try {
+    const r = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`, { signal: AbortSignal.timeout(timeout) });
+    if (r.ok) { const j = await r.json(); if (j?.contents) return j.contents; }
+  } catch(_) {}
+  // Fallback proxies
   const proxies = [
     u => u,
     u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
@@ -1487,6 +1518,7 @@ async function fetchPublicRedAlert() {
 async function standaloneRefresh() {
   await Promise.all([fetchPublicEarthquakes(), fetchPublicWeather(), fetchPublicSatellites(), fetchPublicMarine(), fetchPublicISS(), fetchPublicRedAlert()]);
   refreshComposite();
+  if (_standalone) setTimeout(standaloneRefresh, 30000);
 }
 
 async function prime() {
