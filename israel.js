@@ -1112,7 +1112,7 @@ function closePopup() { $('info-popup')?.classList.add('hidden'); }
 
 function _compassSvg(deg) {
   const r = (deg || 0) * Math.PI / 180;
-  return `<svg viewBox="0 0 60 60"><circle cx="30" cy="30" r="28" fill="none" stroke="rgba(255,255,255,.12)" stroke-width="1.5"/><text x="30" y="12" text-anchor="middle" fill="rgba(255,255,255,.35)" font-size="8" font-family="Orbitron">N</text><line x1="30" y1="30" x2="${30 + 20 * Math.sin(r)}" y2="${30 - 20 * Math.cos(r)}" stroke="#00e5ff" stroke-width="2.5" stroke-linecap="round"/><circle cx="30" cy="30" r="3" fill="#00e5ff"/></svg>`;
+  return `<svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="16" fill="none" stroke="rgba(255,255,255,.15)" stroke-width="1"/><text x="18" y="8" text-anchor="middle" fill="rgba(255,255,255,.4)" font-size="6" font-family="Orbitron">N</text><line x1="18" y1="18" x2="${18 + 12 * Math.sin(r)}" y2="${18 - 12 * Math.cos(r)}" stroke="#00e5ff" stroke-width="2" stroke-linecap="round"/><circle cx="18" cy="18" r="2" fill="#00e5ff"/></svg>`;
 }
 
 function _gauge(lbl, val, unit, color, pct) {
@@ -1153,22 +1153,36 @@ function _showInfoPopupInner(d, type) {
     const tsuCol = tsunami === '\u05d2\u05d1\u05d5\u05d4' ? '#ff1744' : tsunami === '\u05d1\u05d9\u05e0\u05d5\u05e0\u05d9' ? '#ff9100' : '#00e676';
     const place = d.place || '\u05de\u05d9\u05e7\u05d5\u05dd \u05dc\u05d0 \u05d9\u05d3\u05d5\u05e2';
     const lat = d.geo?.lat; const lon = d.geo?.lon;
-    const intensityPct = Math.min(100, (mag / 10) * 100);
-    const depthPct = Math.min(100, (depth / 700) * 100);
-    html = `<div class="popup-header"><div class="popup-title" style="color:${sevCol};font-size:32px">M ${mag.toFixed(1)}</div><div class="popup-sub" style="color:${sevCol};font-family:Orbitron;letter-spacing:2px">${sev.toUpperCase()}</div></div>`
-      + `<div class="popup-header"><div class="popup-sub">${escapeHtml(place)}</div></div>`
+    const distIL = lat != null && lon != null ? Math.round(Math.sqrt(Math.pow((lat - 31.77) * 111, 2) + Math.pow((lon - 35.21) * 85, 2))) : null;
+    const eqPhotoId = 'eqPhoto_' + Date.now();
+    const warnCls = mag >= 6 ? 'red' : mag >= 4.5 ? '' : 'green';
+    const warnText = mag >= 6 ? '\u26a0 \u05e8\u05e2\u05d9\u05d3\u05d4 \u05d7\u05d6\u05e7\u05d4 \u2014 \u05e1\u05d9\u05db\u05d5\u05df \u05dc\u05e0\u05d6\u05e7 \u05de\u05d1\u05e0\u05d9' : mag >= 5 ? '\u26a0 \u05e8\u05e2\u05d9\u05d3\u05d4 \u05de\u05d5\u05e8\u05d2\u05e9\u05ea \u2014 \u05d9\u05e9 \u05dc\u05d4\u05d9\u05e9\u05d0\u05e8 \u05d1\u05db\u05d5\u05e0\u05e0\u05d5\u05ea' : mag >= 4 ? '\u26a0 \u05e8\u05e2\u05d9\u05d3\u05d4 \u05e7\u05dc\u05d4 \u2014 \u05de\u05d5\u05e8\u05d2\u05e9\u05ea \u05d1\u05e1\u05d1\u05d9\u05d1\u05d4' : '\u2705 \u05de\u05d9\u05e0\u05d5\u05e8\u05d9\u05ea \u2014 \u05dc\u05dc\u05d0 \u05e1\u05d9\u05db\u05d5\u05df \u05de\u05d9\u05d5\u05d7\u05d3';
+    html = `<img id="${eqPhotoId}" class="popup-photo hidden" alt="" onerror="this.classList.add('hidden')" />`
+      + `<div class="popup-header"><div class="popup-title" style="color:${sevCol}">M ${mag.toFixed(1)} \u2014 ${sev}</div><div class="popup-sub">\ud83d\udccd ${escapeHtml(place)}</div></div>`
       + `<div class="popup-gauges">`
-      + _gauge('\u05e2\u05d5\u05e6\u05de\u05d4', mag.toFixed(1), 'Richter', sevCol, intensityPct)
-      + _gauge('\u05e2\u05d5\u05de\u05e7', depth ? Math.round(depth) : '?', 'km', '#4fc3f7', depthPct)
+      + _gauge('\u05e2\u05d5\u05e6\u05de\u05d4', mag.toFixed(1), 'Richter', sevCol, Math.min(100, mag * 10))
+      + _gauge('\u05e2\u05d5\u05de\u05e7', depth ? Math.round(depth) : '?', 'km', '#4fc3f7', Math.min(100, depth / 7))
       + _gauge('\u05e6\u05d5\u05e0\u05d0\u05de\u05d9', tsunami, '', tsuCol, tsunami === '\u05d2\u05d1\u05d5\u05d4' ? 90 : tsunami === '\u05d1\u05d9\u05e0\u05d5\u05e0\u05d9' ? 50 : 10)
       + `</div>`
-      + `<div class="popup-grid">`
-      + `<span class="pg-label">\u05d6\u05de\u05df</span><span class="pg-val">${d.time ? new Date(d.time).toLocaleString('he-IL') : '?'}</span>`
-      + `<span class="pg-label">\u05e7\u05d5\u05d0\u05d5\u05e8\u05d3\u05d9\u05e0\u05d8\u05d5\u05ea</span><span class="pg-val">${lat != null ? lat.toFixed(3) : '?'} / ${lon != null ? lon.toFixed(3) : '?'}</span>`
-      + `<span class="pg-label">\u05de\u05e8\u05d7\u05e7 \u05de\u05d9\u05e9\u05e8\u05d0\u05dc</span><span class="pg-val">${lat != null && lon != null ? Math.round(Math.sqrt(Math.pow((lat - 31.77) * 111, 2) + Math.pow((lon - 35.21) * 85, 2))) + ' km' : '?'}</span>`
+      + `<div class="popup-warn ${warnCls}">${warnText}</div>`
+      + `<div style="margin-top:10px">`
+      + `<div class="popup-row"><span class="pr-icon">\ud83d\udd52</span><span class="pr-label">\u05d6\u05de\u05df</span><span class="pr-val">${d.time ? new Date(d.time).toLocaleString('he-IL') : '?'}</span></div>`
+      + `<div class="popup-row"><span class="pr-icon">\ud83d\udccd</span><span class="pr-label">\u05de\u05d9\u05e7\u05d5\u05dd</span><span class="pr-val">${lat != null ? lat.toFixed(3) : '?'}\u00b0 / ${lon != null ? lon.toFixed(3) : '?'}\u00b0</span></div>`
+      + (distIL != null ? `<div class="popup-row"><span class="pr-icon">\ud83c\uddee\ud83c\uddf1</span><span class="pr-label">\u05de\u05d9\u05e9\u05e8\u05d0\u05dc</span><span class="pr-val" style="color:${distIL < 300 ? '#ff1744' : distIL < 800 ? '#ff9100' : 'var(--text)'}">${distIL} km</span></div>` : '')
+      + `<div class="popup-row"><span class="pr-icon">\ud83c\udf0a</span><span class="pr-label">\u05e6\u05d5\u05e0\u05d0\u05de\u05d9</span><span class="pr-val" style="color:${tsuCol}">${tsunami}</span></div>`
       + `</div>`
       + `<div class="popup-note">\u05e8\u05d9\u05db\u05d8\u05e8: 4.0+ \u05de\u05d5\u05e8\u05d2\u05e9 | 5.0+ \u05e1\u05d9\u05db\u05d5\u05df \u05de\u05d1\u05e0\u05d9 | 6.5+ \u05e4\u05d5\u05d8\u05e0\u05e6\u05d9\u05d0\u05dc \u05e6\u05d5\u05e0\u05d0\u05de\u05d9 \u05d0\u05dd \u05e8\u05d3\u05d5\u05d3.</div>`
       + _aiContext('earthquake', d);
+    const cityMatch = (place || '').match(/of\s+(.+?)(?:,|$)/i);
+    if (cityMatch) {
+      const cityName = cityMatch[1].trim().toLowerCase().replace(/\s+/g, '-');
+      setTimeout(() => {
+        const img = document.getElementById(eqPhotoId);
+        if (!img) return;
+        img.src = `https://source.unsplash.com/600x200/?${encodeURIComponent(cityMatch[1].trim())},city,landscape`;
+        img.onload = () => img.classList.remove('hidden');
+      }, 80);
+    }
 
   } else if (type === 'aviation') {
     const alt = Math.round(d.altitude || d.geo?.alt || 0);
@@ -1181,24 +1195,25 @@ function _showInfoPopupInner(d, type) {
     const tr = _milTracker.get(d.icao24);
     const trackMin = tr ? Math.round((Date.now() - tr.firstSeen) / 60000) : 0;
     const photoId = `acPhoto_${d.icao24}`;
+    const vrIcon = d.verticalRate > 2 ? '\u2197\ufe0f' : d.verticalRate < -2 ? '\u2198\ufe0f' : '\u27a1\ufe0f';
+    const vrCol = d.verticalRate > 2 ? '#00e676' : d.verticalRate < -2 ? '#ff9100' : 'var(--text)';
 
     html = `<img id="${photoId}" class="popup-photo hidden" alt="" onerror="this.classList.add('hidden')" />`
-      + `<div class="popup-header"><div class="popup-title" style="color:${col}">\u2708 ${escapeHtml(d.callsign || d.icao24 || 'AIRCRAFT')}</div>`
+      + `<div class="popup-header"><div class="popup-title" style="color:${col}">\u2708\ufe0f ${escapeHtml(d.callsign || d.icao24 || 'AIRCRAFT')}</div>`
       + `<div class="popup-sub">${escapeHtml(d.country || '')}</div></div>`
       + (isMil ? `<div style="text-align:center"><span class="popup-mil-badge">\u26a0 ${escapeHtml(cls)}</span></div>` : '')
       + `<div class="popup-gauges">`
       + _gauge('\u05d2\u05d5\u05d1\u05d4', alt > 0 ? (alt > 9999 ? (alt/1000).toFixed(1) : alt) : '?', alt > 9999 ? 'km' : 'm', '#4fc3f7', Math.min(100, alt / 150))
       + (spdKmh != null ? _gauge('\u05de\u05d4\u05d9\u05e8\u05d5\u05ea', spdKmh, 'km/h', '#ffd600', Math.min(100, spdKmh / 10)) : '')
-      + (hdg != null ? `<div class="popup-gauge"><div class="pg-lbl">\u05db\u05d9\u05d5\u05d5\u05df</div><div class="popup-compass">${_compassSvg(hdg)}</div><div class="pg-num" style="color:#00e5ff;font-size:16px">${hdg}\u00b0</div></div>` : '')
+      + (hdg != null ? `<div class="popup-gauge"><div class="pg-lbl">\u05db\u05d9\u05d5\u05d5\u05df</div><div class="popup-compass">${_compassSvg(hdg)}</div><div class="pg-num" style="color:#00e5ff;font-size:13px">${hdg}\u00b0</div></div>` : '')
       + `</div>`
-      + `<div class="popup-grid">`
-      + `<span class="pg-label">ICAO</span><span class="pg-val" style="font-family:Orbitron;letter-spacing:1px">${d.icao24 || '?'}</span>`
-      + `<span class="pg-label">Callsign</span><span class="pg-val">${d.callsign || '---'}</span>`
-      + (d.squawk ? `<span class="pg-label">Squawk</span><span class="pg-val" style="color:${d.squawk === '7700' ? '#ff1744' : d.squawk === '7600' ? '#ff9100' : 'inherit'}">${d.squawk}${d.squawk === '7700' ? ' \u26a0 EMERGENCY' : d.squawk === '7600' ? ' COMMS LOST' : ''}</span>` : '')
-      + (d.verticalRate != null ? `<span class="pg-label">\u05e7\u05e6\u05d1 \u05d0\u05e0\u05db\u05d9</span><span class="pg-val" style="color:${d.verticalRate > 2 ? '#00e676' : d.verticalRate < -2 ? '#ff9100' : 'var(--text)'}">${d.verticalRate > 0 ? '+' : ''}${d.verticalRate.toFixed(1)} m/s ${d.verticalRate > 2 ? '\u2191' : d.verticalRate < -2 ? '\u2193' : '\u2192'}</span>` : '')
-      + `<span class="pg-label">\u05de\u05d9\u05e7\u05d5\u05dd</span><span class="pg-val">${d.geo?.lat?.toFixed(3) || '?'}, ${d.geo?.lon?.toFixed(3) || '?'}</span>`
-      + (tr ? `<span class="pg-label">\u05d6\u05de\u05df \u05de\u05e2\u05e7\u05d1</span><span class="pg-val">${trackMin} \u05d3\u05e7\u05d5\u05ea</span>` : '')
-      + (tr?.trail?.length ? `<span class="pg-label">\u05e0\u05e7\u05d5\u05d3\u05d5\u05ea \u05de\u05e1\u05dc\u05d5\u05dc</span><span class="pg-val">${tr.trail.length}</span>` : '')
+      + `<div style="margin-top:6px">`
+      + `<div class="popup-row"><span class="pr-icon">\ud83c\udd94</span><span class="pr-label">ICAO</span><span class="pr-val" style="font-family:Orbitron;letter-spacing:1px;font-size:12px">${d.icao24 || '?'}</span></div>`
+      + `<div class="popup-row"><span class="pr-icon">\ud83d\udce1</span><span class="pr-label">Callsign</span><span class="pr-val">${d.callsign || '---'}</span></div>`
+      + (d.squawk ? `<div class="popup-row"><span class="pr-icon">\ud83d\udea8</span><span class="pr-label">Squawk</span><span class="pr-val" style="color:${d.squawk === '7700' ? '#ff1744' : d.squawk === '7600' ? '#ff9100' : 'inherit'}">${d.squawk}${d.squawk === '7700' ? ' EMERGENCY' : d.squawk === '7600' ? ' COMMS LOST' : ''}</span></div>` : '')
+      + (d.verticalRate != null ? `<div class="popup-row"><span class="pr-icon">${vrIcon}</span><span class="pr-label">\u05d0\u05e0\u05db\u05d9</span><span class="pr-val" style="color:${vrCol}">${d.verticalRate > 0 ? '+' : ''}${d.verticalRate.toFixed(1)} m/s</span></div>` : '')
+      + `<div class="popup-row"><span class="pr-icon">\ud83d\udccd</span><span class="pr-label">\u05de\u05d9\u05e7\u05d5\u05dd</span><span class="pr-val">${d.geo?.lat?.toFixed(3) || '?'}, ${d.geo?.lon?.toFixed(3) || '?'}</span></div>`
+      + (tr ? `<div class="popup-row"><span class="pr-icon">\u23f1\ufe0f</span><span class="pr-label">\u05de\u05e2\u05e7\u05d1</span><span class="pr-val">${trackMin} \u05d3\u05e7\u05d5\u05ea | ${tr.trail?.length || 0} \u05e0\u05e7\u05d5\u05d3\u05d5\u05ea</span></div>` : '')
       + `</div>`
       + _aiContext('aviation', d);
 
@@ -1217,64 +1232,93 @@ function _showInfoPopupInner(d, type) {
   } else if (type === 'weather') {
     const t = Number(d.temperature) || 0; const w = Number(d.windspeed) || 0;
     const col = t > 40 ? '#ff1744' : t > 30 ? '#ff9100' : t > 20 ? '#ffd600' : t > 10 ? '#00e5ff' : '#2196f3';
-    html = `<div class="popup-header"><div class="popup-title" style="color:${col}">${Math.round(t)}\u00b0C</div><div class="popup-sub">${escapeHtml(d.city || '\u05dc\u05d0 \u05d9\u05d3\u05d5\u05e2')}</div></div>`
+    const wIcon = w > 60 ? '\ud83c\udf2a\ufe0f' : w > 30 ? '\ud83d\udca8' : '\ud83c\udf43';
+    const tIcon = t > 35 ? '\ud83d\udd25' : t > 25 ? '\u2600\ufe0f' : t > 15 ? '\u26c5' : t > 5 ? '\ud83c\udf25\ufe0f' : '\u2744\ufe0f';
+    const city = d.city || '';
+    const wxPhotoId = 'wxPhoto_' + Date.now();
+    html = `<img id="${wxPhotoId}" class="popup-photo hidden" alt="" onerror="this.classList.add('hidden')" />`
+      + `<div class="popup-header"><div class="popup-title" style="color:${col}">${tIcon} ${Math.round(t)}\u00b0C</div><div class="popup-sub">${escapeHtml(city || '\u05dc\u05d0 \u05d9\u05d3\u05d5\u05e2')}</div></div>`
       + `<div class="popup-gauges">`
       + _gauge('\u05d8\u05de\u05e4\u05f3', Math.round(t), '\u00b0C', col, Math.min(100, ((t + 20) / 70) * 100))
       + _gauge('\u05e8\u05d5\u05d7', Math.round(w), 'km/h', w > 60 ? '#ff1744' : w > 30 ? '#ff9100' : '#00e5ff', Math.min(100, w / 1.2))
       + (d.humidity != null ? _gauge('\u05dc\u05d7\u05d5\u05ea', Math.round(d.humidity), '%', '#7c4dff', d.humidity) : '')
       + `</div>`
-      + `<div class="popup-grid"><span class="pg-label">\u05de\u05d9\u05e7\u05d5\u05dd</span><span class="pg-val">${d.geo?.lat?.toFixed(2) || '?'}, ${d.geo?.lon?.toFixed(2) || '?'}</span></div>`;
+      + `<div style="margin-top:6px">`
+      + `<div class="popup-row"><span class="pr-icon">\ud83c\udf21\ufe0f</span><span class="pr-label">\u05d8\u05de\u05e4\u05f3</span><span class="pr-val" style="color:${col}">${t}\u00b0C</span></div>`
+      + `<div class="popup-row"><span class="pr-icon">${wIcon}</span><span class="pr-label">\u05e8\u05d5\u05d7</span><span class="pr-val">${Math.round(w)} km/h</span></div>`
+      + (d.humidity != null ? `<div class="popup-row"><span class="pr-icon">\ud83d\udca7</span><span class="pr-label">\u05dc\u05d7\u05d5\u05ea</span><span class="pr-val">${Math.round(d.humidity)}%</span></div>` : '')
+      + `<div class="popup-row"><span class="pr-icon">\ud83d\udccd</span><span class="pr-label">\u05de\u05d9\u05e7\u05d5\u05dd</span><span class="pr-val">${d.geo?.lat?.toFixed(2) || '?'}, ${d.geo?.lon?.toFixed(2) || '?'}</span></div>`
+      + `</div>`
+      + (w > 50 ? `<div class="popup-warn red">\ud83c\udf2a\ufe0f \u05e8\u05d5\u05d7\u05d5\u05ea \u05d7\u05d6\u05e7\u05d5\u05ea \u2014 \u05d9\u05e9 \u05dc\u05d4\u05d9\u05d6\u05d4\u05e8!</div>` : w > 30 ? `<div class="popup-warn">\ud83d\udca8 \u05e8\u05d5\u05d7 \u05e2\u05d6 \u2014 \u05d4\u05d9\u05e9\u05de\u05e8\u05d5 \u05de\u05e2\u05e6\u05de\u05d9\u05dd \u05de\u05e2\u05d5\u05e4\u05e4\u05d9\u05dd</div>` : '')
+      + (t > 40 ? `<div class="popup-warn red">\ud83d\udd25 \u05d7\u05d5\u05dd \u05e7\u05d9\u05e6\u05d5\u05e0\u05d9 \u2014 \u05e1\u05db\u05e0\u05ea \u05de\u05db\u05ea \u05d7\u05d5\u05dd!</div>` : '');
+    if (city) {
+      setTimeout(() => {
+        const img = document.getElementById(wxPhotoId);
+        if (!img) return;
+        img.src = `https://source.unsplash.com/600x200/?${encodeURIComponent(city)},city,skyline`;
+        img.onload = () => img.classList.remove('hidden');
+      }, 80);
+    }
 
   } else if (type === 'marine') {
     const wh = parseFloat(d.waveHeight) || 0;
     const col = wh > 5 ? '#ff1744' : wh > 3 ? '#ff9100' : wh > 1.5 ? '#ffd600' : '#00bcd4';
-    html = `<div class="popup-header"><div class="popup-title" style="color:${col}">\ud83c\udf0a ${wh.toFixed(1)}m</div><div class="popup-sub">${escapeHtml(d.station || '\u05ea\u05d7\u05e0\u05d4 \u05d9\u05de\u05d9\u05ea')}</div></div>`
+    const seaState = wh > 6 ? '\u05e1\u05d5\u05e2\u05e8' : wh > 4 ? '\u05e1\u05d5\u05e2\u05e8 \u05de\u05d0\u05d5\u05d3' : wh > 2.5 ? '\u05dc\u05d0 \u05e8\u05d2\u05d5\u05e2' : wh > 1 ? '\u05e8\u05d2\u05d5\u05e2 \u05d9\u05d7\u05e1\u05d9\u05ea' : '\u05e8\u05d2\u05d5\u05e2';
+    const seaDot = wh > 4 ? '#ff1744' : wh > 2 ? '#ff9100' : '#00e676';
+    html = `<div class="popup-header"><div class="popup-title" style="color:${col}"><span class="wave-icon">\ud83c\udf0a</span> ${wh.toFixed(1)}m</div><div class="popup-sub">${escapeHtml(d.station || '\u05ea\u05d7\u05e0\u05d4 \u05d9\u05de\u05d9\u05ea')}</div></div>`
+      + `<div class="popup-status"><span class="dot" style="background:${seaDot}"></span> \u05de\u05e6\u05d1 \u05d9\u05dd: <b style="color:${col};margin-right:4px">${seaState}</b></div>`
       + `<div class="popup-gauges">`
-      + _gauge('\u05d2\u05dc\u05d9\u05dd', wh.toFixed(1), 'm', col, Math.min(100, (wh / 10) * 100))
+      + _gauge('\u05d2\u05dc\u05d9\u05dd', wh.toFixed(1), 'm', col, Math.min(100, wh * 10))
       + (d.waterTemp ? _gauge('\u05de\u05d9\u05dd', d.waterTemp, '\u00b0C', '#00bcd4', Math.min(100, d.waterTemp * 3)) : '')
       + (d.tide != null ? _gauge('\u05d2\u05d0\u05d5\u05ea', parseFloat(d.tide).toFixed(1), 'm', '#7c4dff', 50 + parseFloat(d.tide) * 25) : '')
       + `</div>`
-      + `<div class="popup-grid"><span class="pg-label">\u05de\u05d9\u05e7\u05d5\u05dd</span><span class="pg-val">${d.geo?.lat?.toFixed(2) || '?'}, ${d.geo?.lon?.toFixed(2) || '?'}</span></div>`
-      + `<div class="popup-note">\u05d2\u05dc\u05d9\u05dd \u05de\u05e2\u05dc 2m: \u05e1\u05db\u05e0\u05d4 \u05dc\u05e9\u05d9\u05d9\u05d8 \u05e7\u05d8\u05df | \u05de\u05e2\u05dc 4m: \u05d0\u05d6\u05d4\u05e8\u05d4 \u05d9\u05de\u05d9\u05ea | \u05de\u05e2\u05dc 6m: \u05e1\u05d5\u05e4\u05d4.</div>`
+      + `<div style="margin-top:6px">`
+      + `<div class="popup-row"><span class="pr-icon"><span class="wave-icon">\ud83c\udf0a</span></span><span class="pr-label">\u05d2\u05d5\u05d1\u05d4</span><span class="pr-val" style="color:${col}">${wh.toFixed(1)} m</span></div>`
+      + (d.waterTemp ? `<div class="popup-row"><span class="pr-icon">\ud83c\udf21\ufe0f</span><span class="pr-label">\u05d8\u05de\u05e4\u05f3 \u05d9\u05dd</span><span class="pr-val">${d.waterTemp}\u00b0C</span></div>` : '')
+      + `<div class="popup-row"><span class="pr-icon">\ud83d\udccd</span><span class="pr-label">\u05de\u05d9\u05e7\u05d5\u05dd</span><span class="pr-val">${d.geo?.lat?.toFixed(2) || '?'}, ${d.geo?.lon?.toFixed(2) || '?'}</span></div>`
+      + `</div>`
+      + (wh > 4 ? `<div class="popup-warn red">\u26a0 \u05d0\u05d6\u05d4\u05e8\u05ea \u05d9\u05dd \u05db\u05dc\u05dc\u05d9\u05ea \u2014 \u05d2\u05dc\u05d9\u05dd \u05de\u05e2\u05dc 4m!</div>` : wh > 2 ? `<div class="popup-warn">\u26a0 \u05e1\u05db\u05e0\u05d4 \u05dc\u05e9\u05d9\u05d9\u05d8 \u05e7\u05d8\u05df \u2014 \u05d2\u05dc\u05d9\u05dd \u05de\u05e2\u05dc 2m</div>` : `<div class="popup-warn green">\u2705 \u05d9\u05dd \u05e8\u05d2\u05d5\u05e2 \u2014 \u05d1\u05d8\u05d5\u05d7 \u05dc\u05e9\u05d9\u05d9\u05d8 \u05d5\u05e8\u05d7\u05e6\u05d4</div>`)
+      + `<div class="popup-note">\ud83d\udea2 \u05de\u05e2\u05dc 2m: \u05e1\u05db\u05e0\u05d4 \u05dc\u05e9\u05d9\u05d9\u05d8 \u05e7\u05d8\u05df | \ud83d\udea8 \u05de\u05e2\u05dc 4m: \u05d0\u05d6\u05d4\u05e8\u05d4 \u05d9\u05de\u05d9\u05ea | \ud83c\udf2a\ufe0f \u05de\u05e2\u05dc 6m: \u05e1\u05d5\u05e4\u05d4 \u05d9\u05de\u05d9\u05ea</div>`
       + _aiContext('marine', d);
 
   } else if (type === 'satellite' || type === 'iss') {
     const isISS = type === 'iss' || /ISS|ZARYA|25544/i.test(d.name || '');
     const col = isISS ? '#7c4dff' : '#4fc3f7';
-    html = `<div class="popup-header"><div class="popup-title" style="color:${col}">${isISS ? '\ud83d\udef0 ISS' : '\u25c8 ' + escapeHtml(d.name || 'SAT')}</div></div>`
+    html = `<div class="popup-header"><div class="popup-title" style="color:${col}">${isISS ? '\ud83d\udef0\ufe0f ISS' : '\u25c8 ' + escapeHtml(d.name || 'SAT')}</div></div>`
       + `<div class="popup-gauges">`
       + (d.altitude ? _gauge('\u05d2\u05d5\u05d1\u05d4', Math.round(d.altitude), 'km', col, Math.min(100, d.altitude / 5)) : '')
       + (d.meanMotion ? _gauge('\u05e1\u05d9\u05d1\u05d5\u05d1/\u05d9\u05d5\u05dd', parseFloat(d.meanMotion).toFixed(1), '', col, parseFloat(d.meanMotion) * 6) : '')
       + (d.inclination ? _gauge('\u05d4\u05d8\u05d9\u05d4', d.inclination, '\u00b0', col, d.inclination / 1.8) : '')
       + `</div>`
-      + `<div class="popup-grid">`
-      + (d.noradId ? `<span class="pg-label">NORAD</span><span class="pg-val" style="font-family:Orbitron">${d.noradId}</span>` : '')
-      + (d.geo ? `<span class="pg-label">\u05de\u05d9\u05e7\u05d5\u05dd</span><span class="pg-val">${d.geo.lat?.toFixed(2) || '?'}\u00b0, ${d.geo.lon?.toFixed(2) || '?'}\u00b0</span>` : '')
+      + `<div style="margin-top:6px">`
+      + (d.noradId ? `<div class="popup-row"><span class="pr-icon">\ud83d\udee0\ufe0f</span><span class="pr-label">NORAD</span><span class="pr-val" style="font-family:Orbitron;font-size:12px">${d.noradId}</span></div>` : '')
+      + (d.geo ? `<div class="popup-row"><span class="pr-icon">\ud83d\udccd</span><span class="pr-label">\u05de\u05d9\u05e7\u05d5\u05dd</span><span class="pr-val">${d.geo.lat?.toFixed(2) || '?'}\u00b0, ${d.geo.lon?.toFixed(2) || '?'}\u00b0</span></div>` : '')
       + `</div>`;
 
   } else if (type === 'ships') {
     const st = d.shipType || 0;
     const stName = st >= 70 && st <= 79 ? '\u05de\u05db\u05dc\u05d9\u05ea \u05de\u05d8\u05e2\u05df' : st >= 60 && st <= 69 ? '\u05de\u05e9\u05d0 \u05e0\u05d5\u05e1\u05e2\u05d9\u05dd' : st >= 80 && st <= 89 ? '\u05de\u05db\u05dc\u05d9\u05ea \u05d3\u05dc\u05e7' : '\u05db\u05dc\u05d9 \u05e9\u05d9\u05d9\u05d8';
-    html = `<div class="popup-header"><div class="popup-title" style="color:#00bfa5">\u26f4 ${escapeHtml(d.name || 'VESSEL')}</div><div class="popup-sub">${stName}</div></div>`
+    const stIcon = st >= 70 && st <= 79 ? '\ud83d\udea2' : st >= 60 && st <= 69 ? '\u26f4\ufe0f' : st >= 80 && st <= 89 ? '\u26fd' : '\ud83d\udea4';
+    html = `<div class="popup-header"><div class="popup-title" style="color:#00bfa5">${stIcon} ${escapeHtml(d.name || 'VESSEL')}</div><div class="popup-sub">${stName}</div></div>`
       + `<div class="popup-gauges">`
       + (d.speed != null ? _gauge('\u05de\u05d4\u05d9\u05e8\u05d5\u05ea', d.speed, 'kn', '#00e5ff', Math.min(100, d.speed * 4)) : '')
-      + (d.heading != null ? `<div class="popup-gauge"><div class="pg-lbl">\u05db\u05d9\u05d5\u05d5\u05df</div><div class="popup-compass">${_compassSvg(d.heading)}</div><div class="pg-num" style="color:#00e5ff;font-size:16px">${Math.round(d.heading)}\u00b0</div></div>` : '')
+      + (d.heading != null ? `<div class="popup-gauge"><div class="pg-lbl">\u05db\u05d9\u05d5\u05d5\u05df</div><div class="popup-compass">${_compassSvg(d.heading)}</div><div class="pg-num" style="color:#00e5ff;font-size:13px">${Math.round(d.heading)}\u00b0</div></div>` : '')
       + `</div>`
-      + `<div class="popup-grid">`
-      + (d.mmsi ? `<span class="pg-label">MMSI</span><span class="pg-val" style="font-family:Orbitron">${d.mmsi}</span>` : '')
-      + `<span class="pg-label">\u05de\u05d9\u05e7\u05d5\u05dd</span><span class="pg-val">${d.geo?.lat?.toFixed(3) || '?'}, ${d.geo?.lon?.toFixed(3) || '?'}</span>`
-      + (d.shipType ? `<span class="pg-label">\u05e7\u05d5\u05d3 \u05e1\u05d5\u05d2</span><span class="pg-val">AIS TYPE ${d.shipType}</span>` : '')
+      + `<div style="margin-top:6px">`
+      + (d.mmsi ? `<div class="popup-row"><span class="pr-icon">\ud83d\udee0\ufe0f</span><span class="pr-label">MMSI</span><span class="pr-val" style="font-family:Orbitron;font-size:12px">${d.mmsi}</span></div>` : '')
+      + `<div class="popup-row"><span class="pr-icon">\ud83d\udccd</span><span class="pr-label">\u05de\u05d9\u05e7\u05d5\u05dd</span><span class="pr-val">${d.geo?.lat?.toFixed(3) || '?'}, ${d.geo?.lon?.toFixed(3) || '?'}</span></div>`
+      + (d.shipType ? `<div class="popup-row"><span class="pr-icon">\u2693</span><span class="pr-label">\u05e1\u05d5\u05d2</span><span class="pr-val">AIS TYPE ${d.shipType}</span></div>` : '')
       + `</div>`;
 
   } else if (d._isAlert) {
     const col = (d.severity || 0) >= 4 ? '#ff1744' : (d.severity || 0) >= 3 ? '#ff9100' : '#ffd600';
     html = `<div class="popup-header"><div class="popup-title" style="color:${col}">\u26a1 \u05e8\u05de\u05d4 ${d.severity || '?'}</div><div class="popup-sub">${escapeHtml(d.category || '\u05de\u05e2\u05e8\u05db\u05ea')}</div></div>`
-      + `<div style="font-size:15px;line-height:1.6;margin-bottom:10px">${escapeHtml(d.summary || '')}</div>`
-      + (d.recommended_action ? `<div style="color:var(--cyan);font-size:14px">\u2192 ${escapeHtml(d.recommended_action)}</div>` : '')
-      + (d.confidence ? `<div style="margin-top:8px;font-size:12px;color:var(--text2)">\u05d1\u05d9\u05d8\u05d7\u05d5\u05df: ${((d.confidence || 0) * 100).toFixed(0)}%</div>` : '');
+      + `<div style="font-size:14px;line-height:1.5;margin-bottom:8px">${escapeHtml(d.summary || '')}</div>`
+      + (d.recommended_action ? `<div style="color:var(--cyan);font-size:13px">\u2192 ${escapeHtml(d.recommended_action)}</div>` : '')
+      + (d.confidence ? `<div style="margin-top:6px;font-size:11px;color:var(--text2)">\u05d1\u05d9\u05d8\u05d7\u05d5\u05df: ${((d.confidence || 0) * 100).toFixed(0)}%</div>` : '');
 
   } else {
-    html = `<div style="font-size:14px;line-height:1.5;word-break:break-all"><pre style="white-space:pre-wrap;margin:0;color:var(--text2)">${escapeHtml(JSON.stringify(d, null, 2))}</pre></div>`;
+    html = `<div style="font-size:13px;line-height:1.4;word-break:break-all"><pre style="white-space:pre-wrap;margin:0;color:var(--text2)">${escapeHtml(JSON.stringify(d, null, 2))}</pre></div>`;
   }
   content.innerHTML = html;
 }
