@@ -1739,16 +1739,21 @@ function initWebSocket() {
   if (_standalone) return;
   try {
     const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
-    ws = new WebSocket(`${wsProto}://${location.host}/ws`);
+    const wsUrl = `${wsProto}://${location.host}/ws`;
+    _log('WebSocket', `→ Connecting to ${wsUrl}...`);
+    ws = new WebSocket(wsUrl);
     ws.onopen = () => {
+      _log('WebSocket', '✓ Connected');
       setConn(true);
-      try { ws.send(JSON.stringify({ action: 'get_data' })); } catch(_) {}
-      try { ws.send(JSON.stringify({ action: 'get_alerts' })); } catch(_) {}
+      try { ws.send(JSON.stringify({ action: 'get_data' })); _log('WebSocket', '→ Sent get_data'); } catch(_) {}
+      try { ws.send(JSON.stringify({ action: 'get_alerts' })); _log('WebSocket', '→ Sent get_alerts'); } catch(_) {}
     };
-    ws.onclose = () => { setConn(false); if (!_standalone) setTimeout(initWebSocket, 3000); };
+    ws.onclose = (ev) => { _logWarn('WebSocket', `✗ Closed (code=${ev.code} reason=${ev.reason||'none'}) → reconnect in 3s`); setConn(false); if (!_standalone) setTimeout(initWebSocket, 3000); };
+    ws.onerror = (ev) => { _logErr('WebSocket', `✗ Error: ${ev?.message||'unknown'}`); };
     ws.onmessage = (msg) => {
       try {
         const ev = JSON.parse(msg.data);
+        _log('WebSocket', `← msg type=${ev.type}${ev.data?.items?.length != null ? ' items=' + ev.data.items.length : ''}`);
         if (ev.type === 'welcome') return;
         if (ev.type === 'israel_alerts') handleIsraelAlerts(ev.data).catch(() => {});
         if (ev.type === 'earthquake') live.earthquake = ev.data;
@@ -1764,32 +1769,38 @@ function initWebSocket() {
         if (ev.type === 'all_data') absorbAllData(ev.data);
         if (ev.type === 'alerts' && Array.isArray(ev.data)) aiAlerts = ev.data.slice(0, 40);
         refreshComposite();
-      } catch(e) {}
+      } catch(e) { _logErr('WebSocket', `Parse error: ${e?.message||e}`); }
     };
-  } catch(e) { if (!_standalone) setTimeout(initWebSocket, 3000); }
+  } catch(e) { _logErr('WebSocket', `Init failed: ${e?.message||e}`); if (!_standalone) setTimeout(initWebSocket, 3000); }
 }
 
 let _standalone = false;
 
 async function fetchPublicEarthquakes() {
   const t0 = performance.now();
-  _log('Earthquake', '→ Fetching USGS...');
+  const url = 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.geojson';
+  _log('Earthquake', `→ ${url}`);
   try {
-    const r = await fetch('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.geojson');
+    const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    _log('Earthquake', `← HTTP ${r.status} ${r.statusText} (${(performance.now()-t0).toFixed(0)}ms)`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const d = await r.json();
-    if (!d?.features) return;
+    if (!d?.features) { _logWarn('Earthquake', 'No features in response'); return; }
     live.earthquake = { timestamp: new Date().toISOString(), items: d.features.map(f => ({ id: f.id, magnitude: f.properties.mag, place: f.properties.place, time: f.properties.time, depth: f.geometry.coordinates[2], geo: { lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0] } })) };
     _log('Earthquake', `✓ ${live.earthquake.items.length} quakes (${(performance.now()-t0).toFixed(0)}ms)`);
-  } catch(e) { _logErr('Earthquake', `${e?.message||e} (${(performance.now()-t0).toFixed(0)}ms)`); }
+  } catch(e) { _logErr('Earthquake', `✗ ${e?.message||e} (${(performance.now()-t0).toFixed(0)}ms)`); }
 }
 
 async function fetchPublicSpaceWeather() {
   const t0 = performance.now();
-  _log('SpaceWx', '→ Fetching NOAA SWPC...');
+  const kpUrl = 'https://services.swpc.noaa.gov/products/noaa-planetary-k-index-forecast.json';
+  const swUrl = 'https://services.swpc.noaa.gov/products/solar-wind/plasma-1-day.json';
+  _log('SpaceWx', `→ ${kpUrl}`);
+  _log('SpaceWx', `→ ${swUrl}`);
   try {
     const [kpR, swR] = await Promise.all([
-      fetch('https://services.swpc.noaa.gov/products/noaa-planetary-k-index-forecast.json', { signal: AbortSignal.timeout(6000) }).then(r => r.json()).catch(() => null),
-      fetch('https://services.swpc.noaa.gov/products/solar-wind/plasma-1-day.json', { signal: AbortSignal.timeout(6000) }).then(r => r.json()).catch(() => null)
+      fetch(kpUrl, { signal: AbortSignal.timeout(6000) }).then(r => { _log('SpaceWx', `← KP HTTP ${r.status}`); return r.json(); }).catch(e => { _logWarn('SpaceWx', `✗ KP failed: ${e?.message||e}`); return null; }),
+      fetch(swUrl, { signal: AbortSignal.timeout(6000) }).then(r => { _log('SpaceWx', `← SolarWind HTTP ${r.status}`); return r.json(); }).catch(e => { _logWarn('SpaceWx', `✗ SolarWind failed: ${e?.message||e}`); return null; })
     ]);
     const sw = {};
     if (Array.isArray(kpR) && kpR.length > 1) {
@@ -1801,9 +1812,9 @@ async function fetchPublicSpaceWeather() {
       sw.solarWindSpeed = parseFloat(last[2]) || null;
       sw.solarWindDensity = parseFloat(last[1]) || null;
     }
-    if (sw.kpIndex !== undefined) { live.space_weather = { ...sw, timestamp: new Date().toISOString() }; _log('SpaceWx', `✓ KP=${sw.kpIndex} wind=${sw.solarWindSpeed||'?'} (${(performance.now()-t0).toFixed(0)}ms)`); }
-    else _logWarn('SpaceWx', 'No KP data');
-  } catch(e) { _logErr('SpaceWx', `${e?.message||e} (${(performance.now()-t0).toFixed(0)}ms)`); }
+    if (sw.kpIndex !== undefined) { live.space_weather = { ...sw, timestamp: new Date().toISOString() }; _log('SpaceWx', `✓ KP=${sw.kpIndex} wind=${sw.solarWindSpeed||'?'} density=${sw.solarWindDensity||'?'} (${(performance.now()-t0).toFixed(0)}ms)`); }
+    else _logWarn('SpaceWx', `✗ No KP data (${(performance.now()-t0).toFixed(0)}ms)`);
+  } catch(e) { _logErr('SpaceWx', `✗ ${e?.message||e} (${(performance.now()-t0).toFixed(0)}ms)`); }
 }
 
 async function fetchPublicWeather() {
@@ -1825,22 +1836,29 @@ async function fetchPublicWeather() {
     ];
     const lats = cities.map(c => c.lat).join(',');
     const lons = cities.map(c => c.lon).join(',');
-    const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&current_weather=true`);
+    const wxUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&current_weather=true`;
+    _log('Weather', `→ ${wxUrl.substring(0,80)}...`);
+    const r = await fetch(wxUrl, { signal: AbortSignal.timeout(10000) });
+    _log('Weather', `← HTTP ${r.status} ${r.statusText} (${(performance.now()-t0).toFixed(0)}ms)`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const d = await r.json();
     const items = (Array.isArray(d) ? d : [d]).map((w, i) => {
       const cw = w.current_weather || {};
       return { city: cities[i]?.name || '', temperature: cw.temperature, windspeed: cw.windspeed, geo: { lat: cities[i]?.lat, lon: cities[i]?.lon } };
     }).filter(x => x.geo && x.temperature !== undefined);
     if (items.length) { live.weather = { timestamp: new Date().toISOString(), items }; _log('Weather', `✓ ${items.length} cities (${(performance.now()-t0).toFixed(0)}ms)`); }
-    else _logWarn('Weather', 'No weather items parsed');
-  } catch(e) { _logErr('Weather', `Primary: ${e?.message||e}`); }
+    else _logWarn('Weather', '✗ No weather items parsed');
+  } catch(e) { _logErr('Weather', `✗ Open-Meteo: ${e?.message||e} (${(performance.now()-t0).toFixed(0)}ms)`); }
   if (!live.weather && _standalone) {
+    _log('Weather', '→ Fallback: https://wttr.in/Tel+Aviv?format=j1');
     try {
       const r = await fetch('https://wttr.in/Tel+Aviv?format=j1', { signal: AbortSignal.timeout(6000) });
+      _log('Weather', `← wttr.in HTTP ${r.status}`);
       const d = await r.json();
       const cc = d?.current_condition?.[0];
-      if (cc) live.weather = { timestamp: new Date().toISOString(), items: [{ city: 'Tel Aviv', temperature: parseFloat(cc.temp_C), windspeed: parseFloat(cc.windspeedKmph), humidity: parseFloat(cc.humidity), geo: { lat: 32.08, lon: 34.78 } }] };
-    } catch(_) {}
+      if (cc) { live.weather = { timestamp: new Date().toISOString(), items: [{ city: 'Tel Aviv', temperature: parseFloat(cc.temp_C), windspeed: parseFloat(cc.windspeedKmph), humidity: parseFloat(cc.humidity), geo: { lat: 32.08, lon: 34.78 } }] }; _log('Weather', '✓ wttr.in fallback OK'); }
+      else _logWarn('Weather', '✗ wttr.in no data');
+    } catch(e2) { _logErr('Weather', `✗ wttr.in fallback: ${e2?.message||e2}`); }
   }
 }
 
@@ -1882,7 +1900,11 @@ async function fetchPublicMarine() {
       {lat:-35.0,lon:150.0,n:'Tasman'},{lat:0.0,lon:-25.0,n:'Atlantic-Eq'},{lat:-10.0,lon:50.0,n:'Indian-W'}
     ];
     const lats = pts.map(p=>p.lat).join(','), lons = pts.map(p=>p.lon).join(',');
-    const r = await fetch(`https://marine-api.open-meteo.com/v1/marine?latitude=${lats}&longitude=${lons}&current=wave_height,wave_period`);
+    const marUrl = `https://marine-api.open-meteo.com/v1/marine?latitude=${lats}&longitude=${lons}&current=wave_height,wave_period`;
+    _log('Marine', `→ ${marUrl.substring(0,80)}...`);
+    const r = await fetch(marUrl, { signal: AbortSignal.timeout(10000) });
+    _log('Marine', `← HTTP ${r.status} ${r.statusText} (${(performance.now()-t0).toFixed(0)}ms)`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const d = await r.json();
     const arr = Array.isArray(d) ? d : [d];
     const items = arr.map((m, i) => {
@@ -1891,16 +1913,22 @@ async function fetchPublicMarine() {
       return { station: pts[i]?.n || `P${i}`, geo: { lat: pts[i].lat, lon: pts[i].lon }, waveHeight: wh, waterTemp: null };
     }).filter(Boolean);
     if (items.length) { live.marine = { timestamp: new Date().toISOString(), items }; _log('Marine', `✓ ${items.length} buoys (${(performance.now()-t0).toFixed(0)}ms)`); }
-    else _logWarn('Marine', 'No marine data');
-  } catch(e) { _logErr('Marine', `${e?.message||e} (${(performance.now()-t0).toFixed(0)}ms)`); }
+    else _logWarn('Marine', `✗ No marine data (${(performance.now()-t0).toFixed(0)}ms)`);
+  } catch(e) { _logErr('Marine', `✗ ${e?.message||e} (${(performance.now()-t0).toFixed(0)}ms)`); }
 }
 
 async function fetchPublicISS() {
+  const t0 = performance.now();
+  const url = 'https://api.wheretheiss.at/v1/satellites/25544';
+  _log('ISS', `→ ${url}`);
   try {
-    const r = await fetch('https://api.wheretheiss.at/v1/satellites/25544');
+    const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    _log('ISS', `← HTTP ${r.status} (${(performance.now()-t0).toFixed(0)}ms)`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const d = await r.json();
-    if (d?.latitude && d?.longitude) { live.iss = { geo: { lat: d.latitude, lon: d.longitude }, altitude: d.altitude }; _log('ISS', `✓ lat=${d.latitude.toFixed(1)} lon=${d.longitude.toFixed(1)}`); }
-  } catch(e) { _logErr('ISS', e?.message||e); }
+    if (d?.latitude && d?.longitude) { live.iss = { geo: { lat: d.latitude, lon: d.longitude }, altitude: d.altitude }; _log('ISS', `✓ lat=${d.latitude.toFixed(1)} lon=${d.longitude.toFixed(1)} alt=${d.altitude?.toFixed(0)||'?'}km (${(performance.now()-t0).toFixed(0)}ms)`); }
+    else _logWarn('ISS', '✗ No position data');
+  } catch(e) { _logErr('ISS', `✗ ${e?.message||e} (${(performance.now()-t0).toFixed(0)}ms)`); }
 }
 
 const _MIL_HEX = [
@@ -2073,15 +2101,22 @@ async function fetchPublicShips() {
 
 async function _corsFetch(url, timeout = 10000) {
   const enc = encodeURIComponent(url);
-  const attempts = [
-    ..._PROXY ? [() => fetch(`${_PROXY}?url=${enc}`, { signal: AbortSignal.timeout(timeout) }).then(r => { if (!r.ok) throw 0; return r.text(); })] : [],
-    () => fetch(`https://api.allorigins.win/get?url=${enc}`, { signal: AbortSignal.timeout(timeout) }).then(r => { if (!r.ok) throw 0; return r.json(); }).then(j => j?.contents || ''),
-    () => fetch(`https://api.codetabs.com/v1/proxy/?quest=${enc}`, { signal: AbortSignal.timeout(timeout) }).then(r => { if (!r.ok) throw 0; return r.text(); }),
-    () => fetch(url, { signal: AbortSignal.timeout(timeout) }).then(r => { if (!r.ok) throw 0; return r.text(); })
-  ];
-  for (const attempt of attempts) {
-    try { const t = await attempt(); if (t && t.length > 1) return t; } catch(_) {}
+  const proxyNames = [];
+  const attempts = [];
+  if (_PROXY) { proxyNames.push('custom-proxy'); attempts.push(() => fetch(`${_PROXY}?url=${enc}`, { signal: AbortSignal.timeout(timeout) }).then(r => { if (!r.ok) throw 0; return r.text(); })); }
+  proxyNames.push('allorigins'); attempts.push(() => fetch(`https://api.allorigins.win/get?url=${enc}`, { signal: AbortSignal.timeout(timeout) }).then(r => { if (!r.ok) throw 0; return r.json(); }).then(j => j?.contents || ''));
+  proxyNames.push('codetabs'); attempts.push(() => fetch(`https://api.codetabs.com/v1/proxy/?quest=${enc}`, { signal: AbortSignal.timeout(timeout) }).then(r => { if (!r.ok) throw 0; return r.text(); }));
+  proxyNames.push('direct'); attempts.push(() => fetch(url, { signal: AbortSignal.timeout(timeout) }).then(r => { if (!r.ok) throw 0; return r.text(); }));
+  for (let i = 0; i < attempts.length; i++) {
+    const name = proxyNames[i];
+    try {
+      _log('CORS', `→ Trying ${name} for ${url.substring(0,60)}...`);
+      const t = await attempts[i]();
+      if (t && t.length > 1) { _log('CORS', `✓ ${name} OK (${t.length} chars)`); return t; }
+      _logWarn('CORS', `✗ ${name} returned empty`);
+    } catch(e) { _logWarn('CORS', `✗ ${name} failed: ${e?.message||e}`); }
   }
+  _logErr('CORS', `✗ All proxies failed for ${url.substring(0,60)}`);
   return null;
 }
 
@@ -2117,26 +2152,29 @@ function _parseRedAlertResponse(text) {
 }
 
 async function fetchPublicRedAlert() {
+  const t0 = performance.now();
   const tzeva = 'https://api.tzevaadom.co.il/notifications';
+  _log('RedAlert', `→ ${tzeva}`);
   const enc = encodeURIComponent(tzeva);
   const paths = [
-    ..._PROXY ? [{ name: 'proxy', fn: () => fetch(`${_PROXY}?url=${enc}`, { signal: AbortSignal.timeout(6000) }).then(r => { if (!r.ok) throw 0; return r.text(); }) }] : [],
+    ..._PROXY ? [{ name: 'custom-proxy', fn: () => fetch(`${_PROXY}?url=${enc}`, { signal: AbortSignal.timeout(6000) }).then(r => { if (!r.ok) throw 0; return r.text(); }) }] : [],
     { name: 'allorigins', fn: () => fetch(`https://api.allorigins.win/get?url=${enc}`, { signal: AbortSignal.timeout(8000) }).then(r => { if (!r.ok) throw 0; return r.json(); }).then(j => j?.contents || '') },
     { name: 'codetabs', fn: () => fetch(`https://api.codetabs.com/v1/proxy/?quest=${enc}`, { signal: AbortSignal.timeout(8000) }).then(r => { if (!r.ok) throw 0; return r.text(); }) },
     { name: 'direct', fn: () => fetch(tzeva, { signal: AbortSignal.timeout(5000) }).then(r => { if (!r.ok) throw 0; return r.text(); }) }
   ];
   for (const { name, fn } of paths) {
     try {
+      _log('RedAlert', `→ Trying ${name}...`);
       const text = await fn();
       const result = _parseRedAlertResponse(text);
       if (result) {
-        console.log(`[RedAlert] ✓ ${name} → active:${result.active}`);
+        _log('RedAlert', `✓ ${name} → active:${result.active} isExit:${!!result.isExit} areas:${result.areas?.length||0} (${(performance.now()-t0).toFixed(0)}ms)`);
         handleIsraelAlerts(result).catch(() => {});
         return;
       }
-    } catch(e) { console.log(`[RedAlert] ✗ ${name}: ${e?.message || e}`); }
+    } catch(e) { _logWarn('RedAlert', `✗ ${name}: ${e?.message || e}`); }
   }
-  console.log('[RedAlert] all paths failed');
+  _logErr('RedAlert', `✗ All paths failed (${(performance.now()-t0).toFixed(0)}ms)`);
 }
 
 let _standaloneRunning = false;
@@ -2154,18 +2192,25 @@ async function standaloneRefresh() {
 }
 
 async function prime() {
+  _log('Init', `═══ prime() START — host=${location.hostname} proto=${location.protocol} ═══`);
   if (!location.hostname.endsWith('github.io')) {
+    _log('Init', `→ Trying server API: ${API}/data ...`);
     try {
+      const t0 = performance.now();
       const [all, alerts, aiHist, aiNow] = await Promise.all([
-        fetch(`${API}/data`).then(r => r.json()).catch(() => null),
-        fetch(`${API}/alerts?min_severity=2`).then(r => r.json()).catch(() => null),
-        fetch(`${API}/ai/history?limit=10`).then(r => r.json()).catch(() => null),
-        fetch(`${API}/ai/analysis`).then(r => r.json()).catch(() => null)
+        fetch(`${API}/data`, { signal: AbortSignal.timeout(8000) }).then(r => { _log('Init', `← /data HTTP ${r.status}`); return r.json(); }).catch(e => { _logWarn('Init', `✗ /data: ${e?.message||e}`); return null; }),
+        fetch(`${API}/alerts?min_severity=2`, { signal: AbortSignal.timeout(8000) }).then(r => { _log('Init', `← /alerts HTTP ${r.status}`); return r.json(); }).catch(e => { _logWarn('Init', `✗ /alerts: ${e?.message||e}`); return null; }),
+        fetch(`${API}/ai/history?limit=10`, { signal: AbortSignal.timeout(8000) }).then(r => { _log('Init', `← /ai/history HTTP ${r.status}`); return r.json(); }).catch(e => { _logWarn('Init', `✗ /ai/history: ${e?.message||e}`); return null; }),
+        fetch(`${API}/ai/analysis`, { signal: AbortSignal.timeout(8000) }).then(r => { _log('Init', `← /ai/analysis HTTP ${r.status}`); return r.json(); }).catch(e => { _logWarn('Init', `✗ /ai/analysis: ${e?.message||e}`); return null; })
       ]);
-      if (all && !all.error) { absorbAllData(all); refreshComposite(); return; }
-    } catch(e) {}
+      if (all && !all.error) { _log('Init', `✓ Server connected in ${(performance.now()-t0).toFixed(0)}ms`); absorbAllData(all); refreshComposite(); return; }
+      _logWarn('Init', `Server returned error or null (${(performance.now()-t0).toFixed(0)}ms)`);
+    } catch(e) { _logErr('Init', `Server connection failed: ${e?.message||e}`); }
+  } else {
+    _log('Init', 'GitHub Pages detected → standalone mode');
   }
   _standalone = true;
+  _log('Init', '═══ STANDALONE MODE ═══');
   setConn(false);
   const connEl = $('conn');
   if (connEl) connEl.innerHTML = 'STANDALONE <span id="connDot" style="display:inline-block;width:8px;height:8px;border-radius:50%;margin-left:6px;background:#ff9100;box-shadow:0 0 10px rgba(255,145,0,.35)"></span>';
@@ -2175,7 +2220,11 @@ async function prime() {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
+  _log('Boot', '%c███ REALITY-CORE v35 — Starting... ███', 'font-size:14px');
+  _log('Boot', `UA: ${navigator.userAgent.substring(0,80)}`);
+  _log('Boot', `URL: ${location.href}`);
   initCesium();
+  _log('Boot', '✓ Cesium initialized');
   setTimeout(initEntityClick, 2000);
   await prime();
   if (!_standalone) initWebSocket();
