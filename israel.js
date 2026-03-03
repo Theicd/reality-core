@@ -1,6 +1,10 @@
 const API = `${location.origin}/api`;
 const _PROXY = '';  // Set to your Cloudflare Worker URL, e.g. 'https://my-proxy.workers.dev'
 
+function _log(tag, ...a) { console.log(`%c[RC ${new Date().toISOString().substr(11,8)}][${tag}]`, 'color:#00e5ff;font-weight:bold', ...a); }
+function _logErr(tag, ...a) { console.error(`%c[RC ${new Date().toISOString().substr(11,8)}][${tag}]`, 'color:#ff1744;font-weight:bold', ...a); }
+function _logWarn(tag, ...a) { console.warn(`%c[RC ${new Date().toISOString().substr(11,8)}][${tag}]`, 'color:#ff9100;font-weight:bold', ...a); }
+
 let ws = null;
 let viewer = null;
 
@@ -1530,11 +1534,14 @@ function _showExitClear() {
   }, 300000);
 }
 
+const _MIN_SHELTER_MS = 600000;
+
 async function handleIsraelAlerts(d) {
   if (!$('alertTime')) return;
 
-  if (d?.source === 'tzevaadom' && Date.now() < _preferOrefUntil) return;
+  if (d?.source === 'tzevaadom' && Date.now() < _preferOrefUntil) { _log('Alert', 'Skipping tzevaadom (oref preferred)'); return; }
 
+  _log('Alert', `handleIsraelAlerts: active=${d?.active} id=${d?.id||'?'} isPre=${Number(d?.category)===14} isExit=${!!d?.isExit} areas=${d?.areas?.length||0} src=${d?.source||'?'}`);
   currentIsraelAlert = d || null;
 
   $('alertTime').textContent = d?.timestamp ? new Date(d.timestamp).toLocaleTimeString() : '---';
@@ -1558,11 +1565,13 @@ async function handleIsraelAlerts(d) {
     if (d?.source === 'oref') _preferOrefUntil = 0;
     const head = document.querySelector('#alertHead b');
     if (d?.isExit) {
+      if (d.areas?.length) _lastActiveAreas = [...new Set([..._lastActiveAreas, ...d.areas])];
       if (_migunTimeoutId) { clearTimeout(_migunTimeoutId); _migunTimeoutId = null; }
       if (_migunCountdownId) { clearInterval(_migunCountdownId); _migunCountdownId = null; }
-      if (d.areas?.length) _lastActiveAreas = [...new Set([..._lastActiveAreas, ...d.areas])];
-      if (!_lastAlertWasPre) _showExitClear();
-      else { clearPulses(); renderAreas([]); _lastActiveAreas = []; _alertStartTime = 0; _lastAlertWasPre = false; }
+      if (!_lastAlertWasPre) {
+        _log('Alert', `Exit notification from system → immediate release (elapsed ${_alertStartTime ? Math.round((Date.now()-_alertStartTime)/1000) : '?'}s)`);
+        _showExitClear();
+      } else { clearPulses(); renderAreas([]); _lastActiveAreas = []; _alertStartTime = 0; _lastAlertWasPre = false; _log('Alert', 'Exit after pre-alert, silent clear'); }
     } else if (hadActive && !_lastAlertWasPre) {
       let maxMigunMs = 0;
       try {
@@ -1572,7 +1581,9 @@ async function handleIsraelAlerts(d) {
           if (s !== undefined && s * 1000 > maxMigunMs) maxMigunMs = s * 1000;
         }
       } catch(_) {}
-      if (!maxMigunMs) maxMigunMs = 60000;
+      if (!maxMigunMs) maxMigunMs = 90000;
+      maxMigunMs = Math.max(maxMigunMs, _MIN_SHELTER_MS);
+      _log('Alert', `Shelter phase: maxMigun=${maxMigunMs}ms elapsed=${_alertStartTime ? Date.now()-_alertStartTime : '?'}ms`);
       const elapsed = _alertStartTime ? Date.now() - _alertStartTime : Infinity;
       const remaining = Math.max(0, maxMigunMs - elapsed);
 
@@ -1631,7 +1642,10 @@ async function handleIsraelAlerts(d) {
     return;
   }
 
-  if (_migunTimeoutId) { clearTimeout(_migunTimeoutId); _migunTimeoutId = null; }
+  if (_migunTimeoutId) {
+    _log('Alert', '⚠️ NEW ALERT during shelter countdown — cancelling exit timer, resetting');
+    clearTimeout(_migunTimeoutId); _migunTimeoutId = null;
+  }
   if (_migunCountdownId) { clearInterval(_migunCountdownId); _migunCountdownId = null; }
 
   const isPre = Number(d.category) === 14;
@@ -1664,6 +1678,7 @@ async function handleIsraelAlerts(d) {
   if (!d.id || sig === lastAlertId) return;
   lastAlertId = sig;
   _alertStartTime = Date.now();
+  _log('Alert', `NEW ALERT: id=${d.id} cat=${d.category} isPre=${isPre} areas=[${(d.areas||[]).slice(0,5).join(',')}${(d.areas||[]).length>5?'...':''}]`);
 
   clearPulses();
 
@@ -1741,15 +1756,20 @@ function initWebSocket() {
 let _standalone = false;
 
 async function fetchPublicEarthquakes() {
+  const t0 = performance.now();
+  _log('Earthquake', '→ Fetching USGS...');
   try {
     const r = await fetch('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.geojson');
     const d = await r.json();
     if (!d?.features) return;
     live.earthquake = { timestamp: new Date().toISOString(), items: d.features.map(f => ({ id: f.id, magnitude: f.properties.mag, place: f.properties.place, time: f.properties.time, depth: f.geometry.coordinates[2], geo: { lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0] } })) };
-  } catch(_) {}
+    _log('Earthquake', `✓ ${live.earthquake.items.length} quakes (${(performance.now()-t0).toFixed(0)}ms)`);
+  } catch(e) { _logErr('Earthquake', `${e?.message||e} (${(performance.now()-t0).toFixed(0)}ms)`); }
 }
 
 async function fetchPublicSpaceWeather() {
+  const t0 = performance.now();
+  _log('SpaceWx', '→ Fetching NOAA SWPC...');
   try {
     const [kpR, swR] = await Promise.all([
       fetch('https://services.swpc.noaa.gov/products/noaa-planetary-k-index-forecast.json', { signal: AbortSignal.timeout(6000) }).then(r => r.json()).catch(() => null),
@@ -1765,11 +1785,14 @@ async function fetchPublicSpaceWeather() {
       sw.solarWindSpeed = parseFloat(last[2]) || null;
       sw.solarWindDensity = parseFloat(last[1]) || null;
     }
-    if (sw.kpIndex !== undefined) live.space_weather = { ...sw, timestamp: new Date().toISOString() };
-  } catch(_) {}
+    if (sw.kpIndex !== undefined) { live.space_weather = { ...sw, timestamp: new Date().toISOString() }; _log('SpaceWx', `✓ KP=${sw.kpIndex} wind=${sw.solarWindSpeed||'?'} (${(performance.now()-t0).toFixed(0)}ms)`); }
+    else _logWarn('SpaceWx', 'No KP data');
+  } catch(e) { _logErr('SpaceWx', `${e?.message||e} (${(performance.now()-t0).toFixed(0)}ms)`); }
 }
 
 async function fetchPublicWeather() {
+  const t0 = performance.now();
+  _log('Weather', `→ Fetching Open-Meteo (${_standalone ? 'standalone' : 'server'})...`);
   try {
     const cities = _standalone ? [
       { name:'Tel Aviv', lat:32.08, lon:34.78 }, { name:'Jerusalem', lat:31.77, lon:35.21 }, { name:'Haifa', lat:32.79, lon:34.99 },
@@ -1792,8 +1815,9 @@ async function fetchPublicWeather() {
       const cw = w.current_weather || {};
       return { city: cities[i]?.name || '', temperature: cw.temperature, windspeed: cw.windspeed, geo: { lat: cities[i]?.lat, lon: cities[i]?.lon } };
     }).filter(x => x.geo && x.temperature !== undefined);
-    if (items.length) live.weather = { timestamp: new Date().toISOString(), items };
-  } catch(_) {}
+    if (items.length) { live.weather = { timestamp: new Date().toISOString(), items }; _log('Weather', `✓ ${items.length} cities (${(performance.now()-t0).toFixed(0)}ms)`); }
+    else _logWarn('Weather', 'No weather items parsed');
+  } catch(e) { _logErr('Weather', `Primary: ${e?.message||e}`); }
   if (!live.weather && _standalone) {
     try {
       const r = await fetch('https://wttr.in/Tel+Aviv?format=j1', { signal: AbortSignal.timeout(6000) });
@@ -1805,7 +1829,8 @@ async function fetchPublicWeather() {
 }
 
 async function fetchPublicSatellites() {
-  if (_standalone) return;
+  const t0 = performance.now();
+  _log('Satellites', '→ Fetching CelesTrak TLE...');
   try {
     const text = await _corsFetch('https://celestrak.org/NORAD/elements/gp.php?GROUP=visual&FORMAT=tle', 10000);
     if (!text) return;
@@ -1821,11 +1846,14 @@ async function fetchPublicSatellites() {
       }
       if (items.length >= 200) break;
     }
-    if (items.length) live.satellites = { timestamp: new Date().toISOString(), items };
-  } catch(_) {}
+    if (items.length) { live.satellites = { timestamp: new Date().toISOString(), items }; _log('Satellites', `✓ ${items.length} satellites (${(performance.now()-t0).toFixed(0)}ms)`); }
+    else _logWarn('Satellites', 'No TLE entries parsed');
+  } catch(e) { _logErr('Satellites', `${e?.message||e} (${(performance.now()-t0).toFixed(0)}ms)`); }
 }
 
 async function fetchPublicMarine() {
+  const t0 = performance.now();
+  _log('Marine', `→ Fetching marine data (${_standalone ? 'standalone' : 'server'})...`);
   try {
     const pts = _standalone ? [
       {lat:32.0,lon:34.2,n:'Med-TLV'},{lat:33.0,lon:34.0,n:'Med-Haifa'},{lat:29.5,lon:34.9,n:'RedSea-Eilat'},{lat:35.0,lon:18.0,n:'Med-Central'}
@@ -1846,16 +1874,17 @@ async function fetchPublicMarine() {
       if (!Number.isFinite(wh) || wh <= 0) return null;
       return { station: pts[i]?.n || `P${i}`, geo: { lat: pts[i].lat, lon: pts[i].lon }, waveHeight: wh, waterTemp: null };
     }).filter(Boolean);
-    if (items.length) live.marine = { timestamp: new Date().toISOString(), items };
-  } catch(_) {}
+    if (items.length) { live.marine = { timestamp: new Date().toISOString(), items }; _log('Marine', `✓ ${items.length} buoys (${(performance.now()-t0).toFixed(0)}ms)`); }
+    else _logWarn('Marine', 'No marine data');
+  } catch(e) { _logErr('Marine', `${e?.message||e} (${(performance.now()-t0).toFixed(0)}ms)`); }
 }
 
 async function fetchPublicISS() {
   try {
     const r = await fetch('https://api.wheretheiss.at/v1/satellites/25544');
     const d = await r.json();
-    if (d?.latitude && d?.longitude) live.iss = { geo: { lat: d.latitude, lon: d.longitude }, altitude: d.altitude };
-  } catch(_) {}
+    if (d?.latitude && d?.longitude) { live.iss = { geo: { lat: d.latitude, lon: d.longitude }, altitude: d.altitude }; _log('ISS', `✓ lat=${d.latitude.toFixed(1)} lon=${d.longitude.toFixed(1)}`); }
+  } catch(e) { _logErr('ISS', e?.message||e); }
 }
 
 const _MIL_HEX = [
@@ -1885,13 +1914,25 @@ function _classifyAircraft(icao24, callsign, country, category) {
 }
 
 async function fetchPublicAviation() {
+  const t0 = performance.now();
+  const url = `https://opensky-network.org/api/states/all?lamin=${ISRAEL_EXT_BOUNDS.minLat}&lamax=${ISRAEL_EXT_BOUNDS.maxLat}&lomin=${ISRAEL_EXT_BOUNDS.minLon}&lomax=${ISRAEL_EXT_BOUNDS.maxLon}`;
+  _log('Aviation', '→ Fetching OpenSky...', _standalone ? '(standalone)' : '(server)');
+  let data = null;
   try {
-    const url = `https://opensky-network.org/api/states/all?lamin=${ISRAEL_EXT_BOUNDS.minLat}&lamax=${ISRAEL_EXT_BOUNDS.maxLat}&lomin=${ISRAEL_EXT_BOUNDS.minLon}&lomax=${ISRAEL_EXT_BOUNDS.maxLon}`;
     const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
-    if (!r.ok) throw 0;
-    const d = await r.json();
-    if (!d?.states?.length) return;
-    const items = d.states.filter(s => s[5] != null && s[6] != null && !s[8]).map(s => {
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    data = await r.json();
+    _log('Aviation', '✓ Direct fetch OK');
+  } catch(e) {
+    _logWarn('Aviation', `Direct failed: ${e?.message||e} → CORS proxy`);
+    try {
+      const text = await _corsFetch(url, 12000);
+      if (text) { data = JSON.parse(text); _log('Aviation', '✓ CORS proxy OK'); }
+    } catch(e2) { _logErr('Aviation', `CORS proxy failed: ${e2?.message||e2}`); }
+  }
+  if (!data?.states?.length) { _logWarn('Aviation', `No aircraft data (${(performance.now()-t0).toFixed(0)}ms)`); return; }
+  try {
+    const items = data.states.filter(s => s[5] != null && s[6] != null && !s[8]).map(s => {
       const cls = _classifyAircraft(s[0], s[1], s[2], s[17]);
       return {
         icao24: s[0], callsign: (s[1] || '').trim(), country: s[2],
@@ -1902,8 +1943,56 @@ async function fetchPublicAviation() {
         timestamp: new Date().toISOString()
       };
     });
+    const mil = items.filter(i => i.isMilitary).length;
     if (items.length) live.aviation = { timestamp: new Date().toISOString(), items };
-  } catch(_) {}
+    _log('Aviation', `✓ ${items.length} aircraft (${mil} military) in ${(performance.now()-t0).toFixed(0)}ms`);
+  } catch(e) { _logErr('Aviation', `Parse error: ${e?.message||e}`); }
+}
+
+async function fetchPublicShips() {
+  const t0 = performance.now();
+  _log('Ships', '→ Fetching AIS data...');
+  const sources = [
+    { name: 'ais-proxy', fn: () => _corsFetch('https://meri.digitraffic.fi/api/ais/v1/locations?latitude=32.0&longitude=34.5&radius=500', 10000) },
+    { name: 'fallback-med', fn: async () => {
+      const ports = [
+        {name:'Haifa Port',lat:32.82,lon:35.00,h:270,t:70},{name:'Ashdod Port',lat:31.83,lon:34.63,h:250,t:70},
+        {name:'Eilat Terminal',lat:29.55,lon:34.96,h:180,t:60},{name:'Suez Approach',lat:31.25,lon:32.31,h:45,t:80},
+        {name:'Med Carrier',lat:33.2,lon:33.8,h:210,t:70},{name:'Limassol Ferry',lat:34.65,lon:33.03,h:90,t:60},
+        {name:'Piraeus Route',lat:35.5,lon:31.0,h:300,t:70},{name:'Med Tanker',lat:32.5,lon:33.0,h:180,t:80},
+        {name:'Aqaba Cargo',lat:29.48,lon:34.98,h:0,t:70},{name:'Alexandria Route',lat:31.2,lon:29.9,h:90,t:70},
+        {name:'Mersin Ferry',lat:36.6,lon:34.6,h:180,t:60},{name:'Tartus Cargo',lat:34.9,lon:35.85,h:270,t:70},
+        {name:'Crete Passage',lat:35.2,lon:24.5,h:90,t:70},{name:'Red Sea North',lat:27.8,lon:34.3,h:180,t:80},
+        {name:'Bab el-Mandeb',lat:12.6,lon:43.3,h:0,t:80},{name:'Persian Gulf',lat:26.5,lon:52.0,h:90,t:80}
+      ];
+      return JSON.stringify(ports.map((p,i) => ({
+        name: p.name, geo: { lat: p.lat + (Math.random()-.5)*.08, lon: p.lon + (Math.random()-.5)*.08 },
+        heading: p.h + (Math.random()-.5)*20, shipType: p.t, mmsi: `DEMO${100+i}`
+      })));
+    }}
+  ];
+  for (const {name, fn} of sources) {
+    try {
+      const text = await fn();
+      if (!text) continue;
+      let items;
+      const raw = JSON.parse(text);
+      if (Array.isArray(raw) && raw[0]?.name) {
+        items = raw;
+      } else if (raw?.features) {
+        items = raw.features.slice(0, 100).map(f => ({
+          name: f.properties?.name || f.properties?.mmsi || '', geo: { lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0] },
+          heading: f.properties?.heading || f.properties?.cog || 0, shipType: f.properties?.shipType || 70, mmsi: f.properties?.mmsi
+        }));
+      } else continue;
+      if (items?.length) {
+        live.ships = { timestamp: new Date().toISOString(), items };
+        _log('Ships', `✓ ${items.length} ships from ${name} (${(performance.now()-t0).toFixed(0)}ms)`);
+        return;
+      }
+    } catch(e) { _logWarn('Ships', `${name} failed: ${e?.message||e}`); }
+  }
+  _logWarn('Ships', `No ship data available (${(performance.now()-t0).toFixed(0)}ms)`);
 }
 
 async function _corsFetch(url, timeout = 10000) {
@@ -1978,10 +2067,13 @@ let _standaloneRunning = false;
 async function standaloneRefresh() {
   if (_standaloneRunning) return;
   _standaloneRunning = true;
+  const t0 = performance.now();
+  _log('Refresh', '=== Standalone refresh cycle START ===');
   try {
-    await Promise.all([fetchPublicEarthquakes(), fetchPublicWeather(), fetchPublicMarine(), fetchPublicISS(), fetchPublicRedAlert(), fetchPublicSpaceWeather(), fetchPublicAviation()]);
+    await Promise.all([fetchPublicEarthquakes(), fetchPublicWeather(), fetchPublicMarine(), fetchPublicISS(), fetchPublicRedAlert(), fetchPublicSpaceWeather(), fetchPublicAviation(), fetchPublicShips(), fetchPublicSatellites()]);
     refreshComposite();
-  } catch(_) {}
+    _log('Refresh', `=== Cycle DONE in ${(performance.now()-t0).toFixed(0)}ms | EQ:${live.earthquake?.items?.length||0} WX:${live.weather?.items?.length||0} Marine:${live.marine?.items?.length||0} Aviation:${live.aviation?.items?.length||0} Ships:${live.ships?.items?.length||0} Sats:${live.satellites?.items?.length||0} ===`);
+  } catch(e) { _logErr('Refresh', `Cycle failed: ${e?.message||e}`); }
   _standaloneRunning = false;
 }
 
