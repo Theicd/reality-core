@@ -61,13 +61,46 @@
     #toast { position:absolute; left:50%; transform:translateX(-50%); bottom:18px; width:min(760px, 92vw); pointer-events:none; opacity:0; transition:opacity .18s ease, transform .18s ease; }
     #toast.show { opacity:1; transform:translateX(-50%) translateY(-6px); }
     #toastInner { border:1px solid rgba(255,23,68,.55); background:rgba(255,23,68,.12); box-shadow:0 0 32px rgba(255,23,68,.14); }
-    #toastTitle { font-family:Orbitron; letter-spacing:2px; color:var(--red); font-size:12px; }
+    #toastTitle { font-family:Orbitron; letter-spacing:2px; color:var(--red); font-size:12px; transition:color .2s ease; }
     #toastText { margin-top:4px; font-size:16px; line-height:1.35; }
     #hint { position:absolute; right:12px; bottom:12px; color:rgba(159,179,209,.75); font-size:12px; background:rgba(3,8,16,.55); border:1px solid rgba(255,255,255,.08); padding:8px 10px; border-radius:10px; pointer-events:none; }
-    #info-popup { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); z-index:100; width:min(440px,88vw); max-height:80vh; overflow:auto; pointer-events:auto; background:rgba(3,8,16,.96); border:1px solid rgba(0,229,255,.35); border-radius:14px; box-shadow:0 0 48px rgba(0,229,255,.12), 0 0 120px rgba(0,0,0,.5); padding:20px 22px; }
+    #info-popup { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); z-index:100; width:min(460px,92vw); max-height:85vh; overflow-y:auto; overflow-x:hidden; -webkit-overflow-scrolling:touch; pointer-events:auto; background:rgba(3,8,16,.97); border:1px solid rgba(0,229,255,.35); border-radius:16px; box-shadow:0 0 48px rgba(0,229,255,.12), 0 0 120px rgba(0,0,0,.5); padding:18px 18px 22px; }
     #info-popup.hidden { display:none; }
-    #info-popup .popup-close { position:absolute; top:8px; right:12px; cursor:pointer; font-size:22px; color:var(--text2); background:none; border:none; font-family:Orbitron; }
-    #info-popup .popup-close:hover { color:var(--cyan); }
+    #info-popup .popup-close { position:sticky; top:0; float:right; cursor:pointer; font-size:28px; color:var(--text2); background:rgba(3,8,16,.85); border:none; font-family:Orbitron; padding:6px 10px; border-radius:8px; z-index:5; touch-action:manipulation; -webkit-tap-highlight-color:transparent; }
+    #info-popup .popup-close:hover, #info-popup .popup-close:active { color:var(--cyan); background:rgba(0,229,255,.12); }
+    .popup-photo { width:100%; max-height:160px; object-fit:cover; border-radius:10px; margin-bottom:10px; border:1px solid rgba(255,255,255,.08); }
+    .popup-photo.hidden { display:none; }
+    .popup-header { text-align:center; margin-bottom:10px; }
+    .popup-header .popup-title { font-family:Orbitron; font-weight:900; font-size:22px; letter-spacing:1px; margin-bottom:2px; }
+    .popup-header .popup-sub { font-size:14px; color:var(--text2); }
+    .popup-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px 12px; font-size:13px; margin-bottom:10px; }
+    .popup-grid .pg-label { color:var(--text2); font-size:12px; display:flex; align-items:center; gap:4px; }
+    .popup-grid .pg-val { font-family:Rajdhani; font-weight:600; font-size:13px; }
+    .popup-gauges { display:flex; gap:8px; justify-content:center; margin-bottom:10px; flex-wrap:wrap; }
+    .popup-gauge { flex:1; min-width:68px; max-width:110px; background:rgba(255,255,255,.04); border-radius:8px; padding:7px 5px; text-align:center; border:1px solid rgba(255,255,255,.06); }
+    .popup-gauge .pg-num { font-family:Orbitron; font-size:17px; font-weight:900; }
+    .popup-gauge .pg-unit { font-size:10px; color:var(--text2); margin-top:1px; }
+    .popup-gauge .pg-lbl { font-size:9px; color:var(--text2); font-family:Orbitron; letter-spacing:1px; margin-bottom:3px; }
+    .popup-bar { height:3px; border-radius:2px; background:rgba(255,255,255,.08); margin-top:4px; overflow:hidden; }
+    .popup-bar-fill { height:100%; border-radius:2px; transition:width .4s ease; }
+    .popup-note { font-size:11px; line-height:1.4; color:var(--text2); border-top:1px solid rgba(255,255,255,.08); padding-top:8px; margin-top:10px; }
+    .popup-ai { background:rgba(0,229,255,.06); border:1px solid rgba(0,229,255,.18); border-radius:8px; padding:8px 10px; margin-top:8px; font-size:12px; line-height:1.4; }
+    .popup-ai b { color:var(--cyan); font-family:Orbitron; font-size:10px; letter-spacing:1px; }
+    .popup-mil-badge { display:inline-block; background:rgba(255,23,68,.18); border:1px solid rgba(255,23,68,.4); border-radius:6px; padding:2px 8px; font-family:Orbitron; font-size:10px; color:#ff1744; letter-spacing:1px; margin-bottom:6px; }
+    .popup-compass { width:36px; height:36px; position:relative; margin:0 auto 4px; }
+    .popup-compass svg { width:100%; height:100%; }
+    .popup-row { display:flex; align-items:center; gap:8px; padding:5px 0; border-bottom:1px solid rgba(255,255,255,.04); font-size:13px; }
+    .popup-row:last-child { border-bottom:none; }
+    .popup-row .pr-icon { font-size:16px; min-width:20px; text-align:center; }
+    .popup-row .pr-label { color:var(--text2); font-size:12px; min-width:55px; }
+    .popup-row .pr-val { font-family:Rajdhani; font-weight:600; }
+    .popup-warn { background:rgba(255,145,0,.08); border:1px solid rgba(255,145,0,.25); border-radius:8px; padding:6px 10px; margin-top:8px; font-size:12px; color:#ff9100; display:flex; align-items:center; gap:6px; }
+    .popup-warn.red { background:rgba(255,23,68,.08); border-color:rgba(255,23,68,.25); color:#ff1744; }
+    .popup-warn.green { background:rgba(0,230,118,.08); border-color:rgba(0,230,118,.25); color:#00e676; }
+    .popup-status { display:flex; align-items:center; gap:6px; justify-content:center; margin-bottom:8px; font-size:12px; }
+    .popup-status .dot { width:8px; height:8px; border-radius:50%; display:inline-block; }
+    @keyframes waveAnim { 0%,100%{ transform:translateY(0) } 50%{ transform:translateY(-3px) } }
+    .wave-icon { display:inline-block; animation:waveAnim 2s ease-in-out infinite; }
   </style>
 </head>
 <body>
@@ -151,6 +184,6 @@
   <script src="https://unpkg.com/satellite.js@5.0.1/dist/satellite.min.js"></script>
   <script src="sounds.js?v=6"></script>
   <script src="local-analysis.js?v=1"></script>
-  <script src="israel.js?v=21"></script>
+  <script src="israel.js?v=33"></script>
 </body>
 </html>
