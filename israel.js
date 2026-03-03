@@ -4,6 +4,7 @@ const _PROXY = '';  // Set to your Cloudflare Worker URL, e.g. 'https://my-proxy
 function _log(tag, ...a) { console.log(`%c[RC ${new Date().toISOString().substr(11,8)}][${tag}]`, 'color:#00e5ff;font-weight:bold', ...a); }
 function _logErr(tag, ...a) { console.error(`%c[RC ${new Date().toISOString().substr(11,8)}][${tag}]`, 'color:#ff1744;font-weight:bold', ...a); }
 function _logWarn(tag, ...a) { console.warn(`%c[RC ${new Date().toISOString().substr(11,8)}][${tag}]`, 'color:#ff9100;font-weight:bold', ...a); }
+function _safeNum(v, fallback = 0) { const n = Number(v); return Number.isFinite(n) ? n : fallback; }
 
 let ws = null;
 let viewer = null;
@@ -540,8 +541,9 @@ function renderTrafficLayer() {
   const planeIcon = makeSvgIcon('aircraft', 28, '#ffd600');
   const milIcon = makeSvgIcon('hostile_air', 30, '#ff1744');
   planes.forEach(p => {
+    if (!Number.isFinite(p.geo?.lat) || !Number.isFinite(p.geo?.lon)) return;
     const isMil = p.isMilitary || _classifyAircraft(p.icao24, p.callsign, p.country, p.category).mil;
-    const alt = p.altitude || p.geo.alt || 10000;
+    const alt = _safeNum(p.altitude, _safeNum(p.geo.alt, 10000));
     const icon = isMil ? milIcon : planeIcon;
     const col = isMil ? '#ff1744' : '#ffd600';
     const lbl = _rtl(isMil ? `\u26a0 ${p.callsign || p.icao24 || ''} ${p.milLabel || p.country || ''}` : `${p.callsign || p.icao24 || ''} ${p.country || ''}`);
@@ -553,13 +555,15 @@ function renderTrafficLayer() {
     if (e) { e._rcType = 'aviation'; e._rcData = p; trafficMarks.push(e); }
     const tr = isMil ? _milTracker.get(p.icao24) : null;
     if (tr && tr.trail.length >= 2) {
-      const positions = tr.trail.map(pt => Cesium.Cartesian3.fromDegrees(pt.lon, pt.lat, pt.alt || alt));
+      const positions = tr.trail.filter(pt => Number.isFinite(pt.lon) && Number.isFinite(pt.lat)).map(pt => Cesium.Cartesian3.fromDegrees(pt.lon, pt.lat, _safeNum(pt.alt, alt)));
+      if (positions.length >= 2) {
       const trail = viewer?.entities?.add?.({
         polyline: { positions, width: 3, material: new Cesium.PolylineGlowMaterialProperty({ glowPower: 0.3, color: Cesium.Color.RED.withAlpha(0.6) }), clampToGround: false }
       });
       if (trail) trafficMarks.push(trail);
-    } else if (p.heading !== undefined) {
-      const hdg = (p.heading || 0) * Math.PI / 180;
+      }
+    } else if (Number.isFinite(p.heading)) {
+      const hdg = _safeNum(p.heading) * Math.PI / 180;
       const t = viewer?.entities?.add?.({
         polyline: { positions: [
           Cesium.Cartesian3.fromDegrees(p.geo.lon - Math.sin(hdg) * 3, p.geo.lat - Math.cos(hdg) * 3, alt),
@@ -576,6 +580,7 @@ function renderTrafficLayer() {
   const shipTanker = makeSvgIcon('ship', 28, '#ff9100');
   const shipMil = makeSvgIcon('ship', 26, '#ff1744');
   ships.forEach(s => {
+    if (!Number.isFinite(s.geo?.lat) || !Number.isFinite(s.geo?.lon)) return;
     const st = s.shipType || 0;
     const isCargo = st >= 70 && st <= 79;
     const isTanker = st >= 80 && st <= 89;
@@ -705,7 +710,7 @@ function renderSatellitesLayer() {
       }
     });
 
-    if (live.iss?.geo && !over.some(x => /ISS|ZARYA|25544/i.test(x.item.name || ''))) {
+    if (live.iss?.geo && Number.isFinite(live.iss.geo.lat) && Number.isFinite(live.iss.geo.lon) && !over.some(x => /ISS|ZARYA|25544/i.test(x.item.name || ''))) {
       const ig = live.iss.geo;
       const e = viewer?.entities?.add?.({
         position: Cesium.Cartesian3.fromDegrees(ig.lon, ig.lat, 408000),
@@ -2001,13 +2006,14 @@ async function _fetchAviationADSBLive() {
   const d = await r.json();
   const ac = d?.ac || [];
   if (!ac.length) return [];
-  return ac.filter(a => a.lat != null && a.lon != null).map(a => {
+  return ac.filter(a => Number.isFinite(a.lat) && Number.isFinite(a.lon)).map(a => {
     const cls = _classifyAircraft(a.hex || '', a.flight || '', a.r || '', a.t || '');
+    const alt = _safeNum(a.alt_baro === 'ground' ? 0 : a.alt_baro, _safeNum(a.alt_geom, 0));
     return {
       icao24: a.hex || '', callsign: (a.flight || '').trim(), country: a.r || '',
-      geo: { lat: a.lat, lon: a.lon, alt: a.alt_baro || a.alt_geom || 0 },
-      altitude: a.alt_baro || a.alt_geom || 0, heading: a.track || a.true_heading, velocity: a.gs != null ? a.gs * 0.5144 : null,
-      verticalRate: a.baro_rate || a.geom_rate || null, squawk: a.squawk || '', category: a.category || a.t || '',
+      geo: { lat: a.lat, lon: a.lon, alt },
+      altitude: alt, heading: _safeNum(a.track, _safeNum(a.true_heading, null)), velocity: a.gs != null ? _safeNum(a.gs) * 0.5144 : null,
+      verticalRate: _safeNum(a.baro_rate, _safeNum(a.geom_rate, null)), squawk: a.squawk || '', category: a.category || a.t || '',
       isMilitary: cls.mil || (a.dbFlags & 1) === 1, milLabel: cls.label || (((a.dbFlags & 1) === 1) ? `MIL ${a.r||''}` : ''),
       timestamp: new Date().toISOString()
     };
