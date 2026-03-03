@@ -1864,10 +1864,23 @@ async function fetchPublicWeather() {
 
 async function fetchPublicSatellites() {
   const t0 = performance.now();
-  _log('Satellites', '→ Fetching CelesTrak TLE...');
+  const tleUrl = 'https://celestrak.org/NORAD/elements/gp.php?GROUP=visual&FORMAT=tle';
+  _log('Satellites', `→ ${tleUrl}`);
+  let text = null;
+  // Direct first (CelesTrak has CORS * from GitHub Pages)
   try {
-    const text = await _corsFetch('https://celestrak.org/NORAD/elements/gp.php?GROUP=visual&FORMAT=tle', 10000);
-    if (!text) return;
+    _log('Satellites', '→ Trying direct...');
+    const r = await fetch(tleUrl, { signal: AbortSignal.timeout(10000) });
+    _log('Satellites', `← Direct HTTP ${r.status} (${(performance.now()-t0).toFixed(0)}ms)`);
+    if (r.ok) text = await r.text();
+  } catch(e) { _logWarn('Satellites', `✗ Direct: ${e?.message||e}`); }
+  // Fallback to CORS proxies
+  if (!text || text.length < 50) {
+    _log('Satellites', '→ Trying CORS proxies...');
+    text = await _corsFetch(tleUrl, 10000);
+  }
+  if (!text) { _logErr('Satellites', `✗ No TLE data (${(performance.now()-t0).toFixed(0)}ms)`); return; }
+  try {
     const lines = text.trim().split('\n');
     const items = [];
     for (let i = 0; i + 2 < lines.length; i += 3) {
@@ -1881,8 +1894,8 @@ async function fetchPublicSatellites() {
       if (items.length >= 200) break;
     }
     if (items.length) { live.satellites = { timestamp: new Date().toISOString(), items }; _log('Satellites', `✓ ${items.length} satellites (${(performance.now()-t0).toFixed(0)}ms)`); }
-    else _logWarn('Satellites', 'No TLE entries parsed');
-  } catch(e) { _logErr('Satellites', `${e?.message||e} (${(performance.now()-t0).toFixed(0)}ms)`); }
+    else _logWarn('Satellites', `✗ No TLE entries parsed (${(performance.now()-t0).toFixed(0)}ms)`);
+  } catch(e) { _logErr('Satellites', `✗ Parse: ${e?.message||e} (${(performance.now()-t0).toFixed(0)}ms)`); }
 }
 
 async function fetchPublicMarine() {
@@ -1957,40 +1970,79 @@ function _classifyAircraft(icao24, callsign, country, category) {
   return { mil: false, label: '' };
 }
 
+async function _fetchAviationOpenSky() {
+  const url = `https://opensky-network.org/api/states/all?lamin=${ISRAEL_EXT_BOUNDS.minLat}&lamax=${ISRAEL_EXT_BOUNDS.maxLat}&lomin=${ISRAEL_EXT_BOUNDS.minLon}&lomax=${ISRAEL_EXT_BOUNDS.maxLon}`;
+  _log('Aviation', `→ OpenSky: ${url.substring(0,70)}...`);
+  const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+  _log('Aviation', `← OpenSky HTTP ${r.status}`);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  const d = await r.json();
+  if (!d?.states?.length) return [];
+  return d.states.filter(s => s[5] != null && s[6] != null && !s[8]).map(s => {
+    const cls = _classifyAircraft(s[0], s[1], s[2], s[17]);
+    return {
+      icao24: s[0], callsign: (s[1] || '').trim(), country: s[2],
+      geo: { lat: s[6], lon: s[5], alt: s[13] || s[7] || 0 },
+      altitude: s[13] || s[7] || 0, heading: s[10], velocity: s[9],
+      verticalRate: s[11], squawk: s[14], category: s[17],
+      isMilitary: cls.mil, milLabel: cls.label, timestamp: new Date().toISOString()
+    };
+  });
+}
+
+async function _fetchAviationADSBLive() {
+  const lat = (ISRAEL_EXT_BOUNDS.minLat + ISRAEL_EXT_BOUNDS.maxLat) / 2;
+  const lon = (ISRAEL_EXT_BOUNDS.minLon + ISRAEL_EXT_BOUNDS.maxLon) / 2;
+  const url = `https://api.airplanes.live/v2/point/${lat.toFixed(2)}/${lon.toFixed(2)}/250`;
+  _log('Aviation', `→ airplanes.live: ${url}`);
+  const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
+  _log('Aviation', `← airplanes.live HTTP ${r.status}`);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  const d = await r.json();
+  const ac = d?.ac || [];
+  if (!ac.length) return [];
+  return ac.filter(a => a.lat != null && a.lon != null).map(a => {
+    const cls = _classifyAircraft(a.hex || '', a.flight || '', a.r || '', a.t || '');
+    return {
+      icao24: a.hex || '', callsign: (a.flight || '').trim(), country: a.r || '',
+      geo: { lat: a.lat, lon: a.lon, alt: a.alt_baro || a.alt_geom || 0 },
+      altitude: a.alt_baro || a.alt_geom || 0, heading: a.track || a.true_heading, velocity: a.gs != null ? a.gs * 0.5144 : null,
+      verticalRate: a.baro_rate || a.geom_rate || null, squawk: a.squawk || '', category: a.category || a.t || '',
+      isMilitary: cls.mil || (a.dbFlags & 1) === 1, milLabel: cls.label || (((a.dbFlags & 1) === 1) ? `MIL ${a.r||''}` : ''),
+      timestamp: new Date().toISOString()
+    };
+  });
+}
+
 async function fetchPublicAviation() {
   const t0 = performance.now();
-  const url = `https://opensky-network.org/api/states/all?lamin=${ISRAEL_EXT_BOUNDS.minLat}&lamax=${ISRAEL_EXT_BOUNDS.maxLat}&lomin=${ISRAEL_EXT_BOUNDS.minLon}&lomax=${ISRAEL_EXT_BOUNDS.maxLon}`;
-  _log('Aviation', '→ Fetching OpenSky...', _standalone ? '(standalone)' : '(server)');
-  let data = null;
-  try {
-    const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    data = await r.json();
-    _log('Aviation', '✓ Direct fetch OK');
-  } catch(e) {
-    _logWarn('Aviation', `Direct failed: ${e?.message||e} → CORS proxy`);
-    try {
-      const text = await _corsFetch(url, 12000);
-      if (text) { data = JSON.parse(text); _log('Aviation', '✓ CORS proxy OK'); }
-    } catch(e2) { _logErr('Aviation', `CORS proxy failed: ${e2?.message||e2}`); }
+  _log('Aviation', `→ Fetching aircraft (${_standalone ? 'standalone' : 'server'})...`);
+  let items = [];
+  // Strategy 1: OpenSky (may 429)
+  try { items = await _fetchAviationOpenSky(); } catch(e) { _logWarn('Aviation', `✗ OpenSky: ${e?.message||e}`); }
+  // Strategy 2: airplanes.live (free, CORS *)
+  if (!items.length) {
+    try { items = await _fetchAviationADSBLive(); } catch(e) { _logWarn('Aviation', `✗ airplanes.live: ${e?.message||e}`); }
   }
-  if (!data?.states?.length) { _logWarn('Aviation', `No aircraft data (${(performance.now()-t0).toFixed(0)}ms)`); return; }
-  try {
-    const items = data.states.filter(s => s[5] != null && s[6] != null && !s[8]).map(s => {
-      const cls = _classifyAircraft(s[0], s[1], s[2], s[17]);
-      return {
-        icao24: s[0], callsign: (s[1] || '').trim(), country: s[2],
-        geo: { lat: s[6], lon: s[5], alt: s[13] || s[7] || 0 },
-        altitude: s[13] || s[7] || 0, heading: s[10], velocity: s[9],
-        verticalRate: s[11], squawk: s[14], category: s[17],
-        isMilitary: cls.mil, milLabel: cls.label,
-        timestamp: new Date().toISOString()
-      };
-    });
-    const mil = items.filter(i => i.isMilitary).length;
-    if (items.length) live.aviation = { timestamp: new Date().toISOString(), items };
-    _log('Aviation', `✓ ${items.length} aircraft (${mil} military) in ${(performance.now()-t0).toFixed(0)}ms`);
-  } catch(e) { _logErr('Aviation', `Parse error: ${e?.message||e}`); }
+  // Strategy 3: OpenSky via CORS proxy
+  if (!items.length) {
+    _log('Aviation', '→ Trying OpenSky via CORS proxy...');
+    try {
+      const url = `https://opensky-network.org/api/states/all?lamin=${ISRAEL_EXT_BOUNDS.minLat}&lamax=${ISRAEL_EXT_BOUNDS.maxLat}&lomin=${ISRAEL_EXT_BOUNDS.minLon}&lomax=${ISRAEL_EXT_BOUNDS.maxLon}`;
+      const text = await _corsFetch(url, 12000);
+      if (text) {
+        const d = JSON.parse(text);
+        if (d?.states?.length) items = d.states.filter(s => s[5] != null && s[6] != null && !s[8]).map(s => {
+          const cls = _classifyAircraft(s[0], s[1], s[2], s[17]);
+          return { icao24: s[0], callsign: (s[1]||'').trim(), country: s[2], geo: { lat: s[6], lon: s[5], alt: s[13]||s[7]||0 }, altitude: s[13]||s[7]||0, heading: s[10], velocity: s[9], verticalRate: s[11], squawk: s[14], category: s[17], isMilitary: cls.mil, milLabel: cls.label, timestamp: new Date().toISOString() };
+        });
+      }
+    } catch(e2) { _logErr('Aviation', `✗ CORS proxy: ${e2?.message||e2}`); }
+  }
+  if (!items.length) { _logWarn('Aviation', `✗ No aircraft from any source (${(performance.now()-t0).toFixed(0)}ms)`); return; }
+  const mil = items.filter(i => i.isMilitary).length;
+  live.aviation = { timestamp: new Date().toISOString(), items };
+  _log('Aviation', `✓ ${items.length} aircraft (${mil} military) in ${(performance.now()-t0).toFixed(0)}ms`);
 }
 
 const _SHIP_TYPES = {
@@ -2153,28 +2205,44 @@ function _parseRedAlertResponse(text) {
 
 async function fetchPublicRedAlert() {
   const t0 = performance.now();
-  const tzeva = 'https://api.tzevaadom.co.il/notifications';
-  _log('RedAlert', `→ ${tzeva}`);
-  const enc = encodeURIComponent(tzeva);
+  _log('RedAlert', '→ Checking alert sources...');
+
+  const orefUrl = 'https://www.oref.org.il/WarningMessages/alert/alerts.json';
+  const tzevaUrl = 'https://api.tzevaadom.co.il/notifications';
+  const orefEnc = encodeURIComponent(orefUrl);
+  const tzevaEnc = encodeURIComponent(tzevaUrl);
+
   const paths = [
-    ..._PROXY ? [{ name: 'custom-proxy', fn: () => fetch(`${_PROXY}?url=${enc}`, { signal: AbortSignal.timeout(6000) }).then(r => { if (!r.ok) throw 0; return r.text(); }) }] : [],
-    { name: 'allorigins', fn: () => fetch(`https://api.allorigins.win/get?url=${enc}`, { signal: AbortSignal.timeout(8000) }).then(r => { if (!r.ok) throw 0; return r.json(); }).then(j => j?.contents || '') },
-    { name: 'codetabs', fn: () => fetch(`https://api.codetabs.com/v1/proxy/?quest=${enc}`, { signal: AbortSignal.timeout(8000) }).then(r => { if (!r.ok) throw 0; return r.text(); }) },
-    { name: 'direct', fn: () => fetch(tzeva, { signal: AbortSignal.timeout(5000) }).then(r => { if (!r.ok) throw 0; return r.text(); }) }
+    // 1. oref.org.il direct (works locally / same-origin, may CORS-block from GitHub)
+    { name: 'oref-direct', fn: () => fetch(orefUrl, { signal: AbortSignal.timeout(4000), headers: { 'Referer': 'https://www.oref.org.il/', 'X-Requested-With': 'XMLHttpRequest' } }).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.text(); }) },
+    // 2. tzevaadom via allorigins (reliable from GitHub Pages)
+    { name: 'tzeva-allorigins', fn: () => fetch(`https://api.allorigins.win/get?url=${tzevaEnc}`, { signal: AbortSignal.timeout(8000) }).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }).then(j => j?.contents || '') },
+    // 3. oref via allorigins
+    { name: 'oref-allorigins', fn: () => fetch(`https://api.allorigins.win/get?url=${orefEnc}`, { signal: AbortSignal.timeout(8000) }).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }).then(j => j?.contents || '') },
+    // 4. tzevaadom via codetabs
+    { name: 'tzeva-codetabs', fn: () => fetch(`https://api.codetabs.com/v1/proxy/?quest=${tzevaEnc}`, { signal: AbortSignal.timeout(8000) }).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.text(); }) },
+    // 5. custom proxy (if configured)
+    ..._PROXY ? [{ name: 'custom-proxy', fn: () => fetch(`${_PROXY}?url=${tzevaEnc}`, { signal: AbortSignal.timeout(6000) }).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.text(); }) }] : [],
+    // 6. tzevaadom direct (works locally)
+    { name: 'tzeva-direct', fn: () => fetch(tzevaUrl, { signal: AbortSignal.timeout(5000) }).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.text(); }) }
   ];
+
   for (const { name, fn } of paths) {
     try {
       _log('RedAlert', `→ Trying ${name}...`);
       const text = await fn();
+      if (!text || text.trim().length < 2) { _logWarn('RedAlert', `✗ ${name}: empty response`); continue; }
+      _log('RedAlert', `← ${name}: ${text.substring(0, 80)}${text.length > 80 ? '...' : ''}`);
       const result = _parseRedAlertResponse(text);
       if (result) {
         _log('RedAlert', `✓ ${name} → active:${result.active} isExit:${!!result.isExit} areas:${result.areas?.length||0} (${(performance.now()-t0).toFixed(0)}ms)`);
+        if (result.active) _log('RedAlert', `🚨 ALERT ACTIVE! areas: ${result.areas?.join(', ')||'?'} desc: ${result.desc||'?'}`);
         handleIsraelAlerts(result).catch(() => {});
         return;
       }
     } catch(e) { _logWarn('RedAlert', `✗ ${name}: ${e?.message || e}`); }
   }
-  _logErr('RedAlert', `✗ All paths failed (${(performance.now()-t0).toFixed(0)}ms)`);
+  _logErr('RedAlert', `✗ All ${paths.length} paths failed (${(performance.now()-t0).toFixed(0)}ms)`);
 }
 
 let _standaloneRunning = false;
@@ -2192,35 +2260,47 @@ async function standaloneRefresh() {
 }
 
 async function prime() {
-  _log('Init', `═══ prime() START — host=${location.hostname} proto=${location.protocol} ═══`);
-  if (!location.hostname.endsWith('github.io')) {
+  const isGH = location.hostname.endsWith('github.io');
+  const isLocal = ['localhost','127.0.0.1'].includes(location.hostname);
+  _log('Init', `═══ prime() START — host=${location.hostname} proto=${location.protocol} isGH=${isGH} isLocal=${isLocal} ═══`);
+
+  // Always try local server first (unless GitHub Pages — server will never be there)
+  if (!isGH) {
     _log('Init', `→ Trying server API: ${API}/data ...`);
     try {
       const t0 = performance.now();
       const [all, alerts, aiHist, aiNow] = await Promise.all([
-        fetch(`${API}/data`, { signal: AbortSignal.timeout(8000) }).then(r => { _log('Init', `← /data HTTP ${r.status}`); return r.json(); }).catch(e => { _logWarn('Init', `✗ /data: ${e?.message||e}`); return null; }),
-        fetch(`${API}/alerts?min_severity=2`, { signal: AbortSignal.timeout(8000) }).then(r => { _log('Init', `← /alerts HTTP ${r.status}`); return r.json(); }).catch(e => { _logWarn('Init', `✗ /alerts: ${e?.message||e}`); return null; }),
-        fetch(`${API}/ai/history?limit=10`, { signal: AbortSignal.timeout(8000) }).then(r => { _log('Init', `← /ai/history HTTP ${r.status}`); return r.json(); }).catch(e => { _logWarn('Init', `✗ /ai/history: ${e?.message||e}`); return null; }),
-        fetch(`${API}/ai/analysis`, { signal: AbortSignal.timeout(8000) }).then(r => { _log('Init', `← /ai/analysis HTTP ${r.status}`); return r.json(); }).catch(e => { _logWarn('Init', `✗ /ai/analysis: ${e?.message||e}`); return null; })
+        fetch(`${API}/data`, { signal: AbortSignal.timeout(5000) }).then(r => { _log('Init', `← /data HTTP ${r.status}`); return r.json(); }).catch(e => { _logWarn('Init', `✗ /data: ${e?.message||e}`); return null; }),
+        fetch(`${API}/alerts?min_severity=2`, { signal: AbortSignal.timeout(5000) }).then(r => { _log('Init', `← /alerts HTTP ${r.status}`); return r.json(); }).catch(e => { _logWarn('Init', `✗ /alerts: ${e?.message||e}`); return null; }),
+        fetch(`${API}/ai/history?limit=10`, { signal: AbortSignal.timeout(5000) }).then(r => { _log('Init', `← /ai/history HTTP ${r.status}`); return r.json(); }).catch(e => { _logWarn('Init', `✗ /ai/history: ${e?.message||e}`); return null; }),
+        fetch(`${API}/ai/analysis`, { signal: AbortSignal.timeout(5000) }).then(r => { _log('Init', `← /ai/analysis HTTP ${r.status}`); return r.json(); }).catch(e => { _logWarn('Init', `✗ /ai/analysis: ${e?.message||e}`); return null; })
       ]);
-      if (all && !all.error) { _log('Init', `✓ Server connected in ${(performance.now()-t0).toFixed(0)}ms`); absorbAllData(all); refreshComposite(); return; }
-      _logWarn('Init', `Server returned error or null (${(performance.now()-t0).toFixed(0)}ms)`);
-    } catch(e) { _logErr('Init', `Server connection failed: ${e?.message||e}`); }
+      if (all && !all.error) {
+        _log('Init', `✓ Server connected in ${(performance.now()-t0).toFixed(0)}ms → SERVER MODE`);
+        absorbAllData(all);
+        if (alerts && Array.isArray(alerts)) { aiAlerts = alerts.slice(0, 40); _log('Init', `✓ ${alerts.length} alerts loaded`); }
+        refreshComposite();
+        return;
+      }
+      _logWarn('Init', `Server returned error or null (${(performance.now()-t0).toFixed(0)}ms) → fallback to standalone`);
+    } catch(e) { _logErr('Init', `Server connection failed: ${e?.message||e} → fallback to standalone`); }
   } else {
     _log('Init', 'GitHub Pages detected → standalone mode');
   }
+
+  // Standalone mode (both GitHub Pages AND local without server)
   _standalone = true;
-  _log('Init', '═══ STANDALONE MODE ═══');
+  _log('Init', `═══ STANDALONE MODE (${isGH ? 'GitHub Pages' : isLocal ? 'local no-server' : location.hostname}) ═══`);
   setConn(false);
   const connEl = $('conn');
-  if (connEl) connEl.innerHTML = 'STANDALONE <span id="connDot" style="display:inline-block;width:8px;height:8px;border-radius:50%;margin-left:6px;background:#ff9100;box-shadow:0 0 10px rgba(255,145,0,.35)"></span>';
+  if (connEl) connEl.innerHTML = `STANDALONE${isGH ? ' (GH)' : ''} <span id="connDot" style="display:inline-block;width:8px;height:8px;border-radius:50%;margin-left:6px;background:#ff9100;box-shadow:0 0 10px rgba(255,145,0,.35)"></span>`;
   const aiLabel = document.querySelector('#aiPanel b');
   if (aiLabel) aiLabel.textContent = '📊 LOCAL MONITOR';
   await standaloneRefresh();
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
-  _log('Boot', '%c███ REALITY-CORE v35 — Starting... ███', 'font-size:14px');
+  console.log('%c███ REALITY-CORE v36 — Starting... ███', 'color:#00e5ff;font-size:16px;font-weight:bold;text-shadow:0 0 8px #00e5ff');
   _log('Boot', `UA: ${navigator.userAgent.substring(0,80)}`);
   _log('Boot', `URL: ${location.href}`);
   initCesium();
