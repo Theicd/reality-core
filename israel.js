@@ -10,9 +10,13 @@ let israelAlt = 750000;
 let lastAlertId = '';
 let pulsePrims = [];
 let _lastActiveAreas = [];
+let _alertStartTime = 0;
+let _migunTimeoutId = null;
+let _migunCountdownId = null;
 let globalMarks = [];
 let _globalSig = '';
 let _preferOrefUntil = 0;
+const _milTracker = new Map();
 
 const META = {
   coordsUrl: 'https://raw.githubusercontent.com/amitfin/oref_alert/main/custom_components/oref_alert/metadata/area_info.py',
@@ -79,7 +83,11 @@ const SVG_SHAPES = {
   quake: (c) => `<polygon points="24,4 28,16 40,16 30,24 34,36 24,28 14,36 18,24 8,16 20,16" fill="${c}" stroke="#000" stroke-width="1"/>`,
   wave: (c) => `<path d="M6 24 Q12 16 18 24 Q24 32 30 24 Q36 16 42 24" fill="none" stroke="${c}" stroke-width="3" stroke-linecap="round"/><path d="M6 30 Q12 22 18 30 Q24 38 30 30 Q36 22 42 30" fill="none" stroke="${c}" stroke-width="2" opacity="0.5"/>`,
   alert: (c) => `<polygon points="24,6 42,38 6,38" fill="none" stroke="${c}" stroke-width="2.5"/><text x="24" y="32" text-anchor="middle" fill="${c}" font-size="18" font-weight="bold">!</text>`,
-  iss: (c) => `<rect x="10" y="20" width="28" height="8" rx="3" fill="${c}" stroke="#000" stroke-width="1"/><rect x="4" y="16" width="8" height="16" rx="1" fill="${c}" opacity="0.6"/><rect x="36" y="16" width="8" height="16" rx="1" fill="${c}" opacity="0.6"/><circle cx="24" cy="24" r="4" fill="#fff" stroke="${c}" stroke-width="1.5"/>`
+  iss: (c) => `<rect x="10" y="20" width="28" height="8" rx="3" fill="${c}" stroke="#000" stroke-width="1"/><rect x="4" y="16" width="8" height="16" rx="1" fill="${c}" opacity="0.6"/><rect x="36" y="16" width="8" height="16" rx="1" fill="${c}" opacity="0.6"/><circle cx="24" cy="24" r="4" fill="#fff" stroke="${c}" stroke-width="1.5"/>`,
+  rocket: (c) => `<path d="M24 4 C20 12 20 18 20 22 L16 28 L20 26 L22 40 L24 36 L26 40 L28 26 L32 28 L28 22 C28 18 28 12 24 4 Z" fill="${c}" stroke="#000" stroke-width="1"/><ellipse cx="24" cy="14" rx="2" ry="4" fill="#fff" opacity="0.7"/><circle cx="24" cy="38" r="2" fill="#ff0" opacity="0.6"/>`,
+  hostile_air: (c) => `<path d="M24 10 L27 20 L42 24 L27 26 L29 36 L24 32 L19 36 L21 26 L6 24 L21 20 Z" fill="${c}" stroke="#000" stroke-width="1.5"/><circle cx="24" cy="22" r="5" fill="none" stroke="#fff" stroke-width="1.5"/><line x1="20.5" y1="18.5" x2="27.5" y2="25.5" stroke="#fff" stroke-width="2"/><line x1="27.5" y1="18.5" x2="20.5" y2="25.5" stroke="#fff" stroke-width="2"/>`,
+  siren: (c) => `<rect x="20" y="28" width="8" height="10" rx="1" fill="${c}"/><path d="M16 28 L24 14 L32 28 Z" fill="${c}" stroke="#000" stroke-width="1"/><circle cx="24" cy="22" r="5" fill="#fff" opacity="0.9"/><circle cx="24" cy="22" r="3" fill="${c}"/><rect x="17" y="38" width="14" height="4" rx="2" fill="${c}" opacity="0.6"/><line x1="12" y1="18" x2="5" y2="14" stroke="${c}" stroke-width="2" opacity="0.7"/><line x1="12" y1="24" x2="5" y2="28" stroke="${c}" stroke-width="2" opacity="0.7"/><line x1="36" y1="18" x2="43" y2="14" stroke="${c}" stroke-width="2" opacity="0.7"/><line x1="36" y1="24" x2="43" y2="28" stroke="${c}" stroke-width="2" opacity="0.7"/>`,
+  hazmat: (c) => `<polygon points="24,6 42,38 6,38" fill="${c}" fill-opacity="0.15" stroke="${c}" stroke-width="2.5"/><circle cx="24" cy="26" r="7" fill="none" stroke="${c}" stroke-width="2"/><path d="M24 19 L24 24" stroke="${c}" stroke-width="2.5" stroke-linecap="round"/><circle cx="24" cy="30" r="1.5" fill="${c}"/>`
 };
 function makeSvgIcon(type, size, color) {
   const key = `svg_${type}_${size}_${color}`;
@@ -117,21 +125,7 @@ function makeQuakeIcon(mag) {
   return _iconCache[key];
 }
 function makeWaveBar(height, color) {
-  const key = `wavebar_${height.toFixed(1)}_${color}`;
-  if (_iconCache[key]) return _iconCache[key];
-  const w = 40, h = 80;
-  const c = document.createElement('canvas'); c.width = w; c.height = h;
-  const ctx = c.getContext('2d');
-  const barH = Math.min(70, Math.max(8, height * 10));
-  ctx.fillStyle = '#111'; ctx.fillRect(8, h-barH-4, w-16, barH);
-  const grad = ctx.createLinearGradient(0, h, 0, h-barH);
-  grad.addColorStop(0, color); grad.addColorStop(1, color + '60');
-  ctx.fillStyle = grad; ctx.fillRect(10, h-barH-2, w-20, barH-2);
-  ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.strokeRect(8, h-barH-4, w-16, barH);
-  ctx.fillStyle = '#fff'; ctx.font = 'bold 12px monospace'; ctx.textAlign = 'center';
-  ctx.fillText(height.toFixed(1)+'m', w/2, h-barH-10);
-  _iconCache[key] = c.toDataURL();
-  return _iconCache[key];
+  return makeSvgIcon('wave', 24, color);
 }
 
 function $(id) { return document.getElementById(id); }
@@ -177,14 +171,14 @@ function setConn(ok) {
   dot.style.boxShadow = ok ? '0 0 10px rgba(0,255,136,.35)' : '0 0 12px rgba(255,23,68,.35)';
 }
 
-function showToast(text) {
+function showToast(text, durationMs = 4500, html = false) {
   const toast = $('toast');
   const t = $('toastText');
   if (!toast || !t) return;
-  t.textContent = text;
+  if (html) t.innerHTML = text; else t.textContent = text;
   toast.classList.add('show');
   clearTimeout(showToast._t);
-  showToast._t = setTimeout(() => toast.classList.remove('show'), 4500);
+  showToast._t = setTimeout(() => toast.classList.remove('show'), durationMs);
 }
 
 function clearPulses() {
@@ -207,33 +201,47 @@ function clearSatMarks() {
   satMarks = removeEntities(satMarks);
 }
 
-function addPulseAt(lon, lat, colorCss = '#ff1744', areaName = '', isClear = false) {
+function _alertCatToIcon(category) {
+  const cat = Number(category) || 0;
+  if (cat === 1 || cat === 13) return { type: 'rocket', emoji: '\ud83d\ude80' };
+  if (cat === 2) return { type: 'hostile_air', emoji: '\u2708\ufe0f' };
+  if (cat === 3) return { type: 'quake', emoji: '\u26a0\ufe0f' };
+  if (cat === 4) return { type: 'wave', emoji: '\ud83c\udf0a' };
+  if (cat === 5 || cat === 6) return { type: 'hazmat', emoji: '\u2622\ufe0f' };
+  return { type: 'siren', emoji: '\ud83d\udea8' };
+}
+
+function addPulseAt(lon, lat, colorCss = '#ff1744', areaName = '', isClear = false, category = 0) {
   if (!viewer) return;
   const color = Cesium.Color.fromCssColorString(colorCss);
-  const icon = makeSvgIcon('alert', 24, colorCss);
-  const emoji = isClear ? '✅' : '🔴';
+  const catInfo = isClear ? { type: 'alert', emoji: '\u2705' } : _alertCatToIcon(category);
+  const icon = makeSvgIcon(catInfo.type, 28, colorCss);
+  const start = performance.now();
 
   const marker = viewer.entities.add({
     position: Cesium.Cartesian3.fromDegrees(lon, lat, 0),
-    billboard: { image: icon, width: 42, height: 42 },
-    ellipse: { semiMajorAxis: 15000, semiMinorAxis: 15000, material: Cesium.Color.TRANSPARENT, outline: true, outlineColor: color.withAlpha(0.6), outlineWidth: 3 },
-    label: areaName ? { text: `${emoji} ${areaName}`, font: 'bold 15px Rajdhani', fillColor: color, outlineColor: Cesium.Color.BLACK, outlineWidth: 3, style: Cesium.LabelStyle.FILL_AND_OUTLINE, pixelOffset: new Cesium.Cartesian2(26, 0), showBackground: true, backgroundColor: Cesium.Color.BLACK.withAlpha(0.85) } : undefined
+    billboard: {
+      image: icon, width: isClear ? 44 : 52, height: isClear ? 44 : 52,
+      rotation: isClear ? 0 : new Cesium.CallbackProperty(() => -((performance.now() - start) / 800 % (Math.PI * 2)), false)
+    },
+    label: areaName ? { text: `${catInfo.emoji} ${areaName}`, font: 'bold 15px Rajdhani', fillColor: color, outlineColor: Cesium.Color.BLACK, outlineWidth: 3, style: Cesium.LabelStyle.FILL_AND_OUTLINE, pixelOffset: new Cesium.Cartesian2(isClear ? 28 : 32, 0), showBackground: true, backgroundColor: Cesium.Color.BLACK.withAlpha(0.85) } : undefined
   });
   pulsePrims.push(marker);
 
-  const start = performance.now();
-  const pulse = viewer.entities.add({
-    position: Cesium.Cartesian3.fromDegrees(lon, lat, 0),
-    ellipse: {
-      semiMajorAxis: new Cesium.CallbackProperty(() => { const k = ((performance.now() - start) / 1000 % 1.5) / 1.5; return 12000 + k * 80000; }, false),
-      semiMinorAxis: new Cesium.CallbackProperty(() => { const k = ((performance.now() - start) / 1000 % 1.5) / 1.5; return 12000 + k * 80000; }, false),
-      material: new Cesium.ColorMaterialProperty(new Cesium.CallbackProperty(() => { const k = ((performance.now() - start) / 1000 % 1.5) / 1.5; return color.withAlpha(0.4 * (1 - k)); }, false)),
-      outline: true,
-      outlineColor: new Cesium.CallbackProperty(() => { const k = ((performance.now() - start) / 1000 % 1.5) / 1.5; return color.withAlpha(0.8 * (1 - k)); }, false),
-      height: 0
-    }
-  });
-  pulsePrims.push(pulse);
+  if (!isClear) {
+    const pulse = viewer.entities.add({
+      position: Cesium.Cartesian3.fromDegrees(lon, lat, 0),
+      ellipse: {
+        semiMajorAxis: new Cesium.CallbackProperty(() => { const k = ((performance.now() - start) / 1000 % 2.5) / 2.5; return 5000 + k * 25000; }, false),
+        semiMinorAxis: new Cesium.CallbackProperty(() => { const k = ((performance.now() - start) / 1000 % 2.5) / 2.5; return 5000 + k * 25000; }, false),
+        material: new Cesium.ColorMaterialProperty(new Cesium.CallbackProperty(() => { const k = ((performance.now() - start) / 1000 % 2.5) / 2.5; return color.withAlpha(0.15 * (1 - k)); }, false)),
+        outline: true,
+        outlineColor: new Cesium.CallbackProperty(() => { const k = ((performance.now() - start) / 1000 % 2.5) / 2.5; return color.withAlpha(0.4 * (1 - k)); }, false),
+        height: 0
+      }
+    });
+    pulsePrims.push(pulse);
+  }
 }
 
 function addPointAt(lon, lat, colorCss, label) {
@@ -498,15 +506,27 @@ function renderTrafficLayer() {
   clearTrafficMarks();
 
   const planeIcon = makeSvgIcon('aircraft', 28, '#ffd600');
+  const milIcon = makeSvgIcon('hostile_air', 30, '#ff1744');
   planes.forEach(p => {
+    const isMil = p.isMilitary || _classifyAircraft(p.icao24, p.callsign, p.country, p.category).mil;
     const alt = p.altitude || p.geo.alt || 10000;
+    const icon = isMil ? milIcon : planeIcon;
+    const col = isMil ? '#ff1744' : '#ffd600';
+    const lbl = isMil ? `\u26a0 ${p.callsign || p.icao24 || ''} ${p.milLabel || p.country || ''}` : `${p.callsign || p.icao24 || ''} ${p.country || ''}`;
     const e = viewer?.entities?.add?.({
       position: Cesium.Cartesian3.fromDegrees(p.geo.lon, p.geo.lat, alt),
-      billboard: { image: planeIcon, width: 44, height: 44, rotation: p.heading ? -Cesium.Math.toRadians(p.heading) : 0 },
-      label: { text: `${p.callsign || p.icao24 || ''} ${p.country || ''}`, font: 'bold 14px Rajdhani', fillColor: Cesium.Color.YELLOW, outlineColor: Cesium.Color.BLACK, outlineWidth: 3, style: Cesium.LabelStyle.FILL_AND_OUTLINE, pixelOffset: new Cesium.Cartesian2(26, 0), distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 5000000) }
+      billboard: { image: icon, width: isMil ? 52 : 44, height: isMil ? 52 : 44, rotation: p.heading ? -Cesium.Math.toRadians(p.heading) : 0 },
+      label: { text: lbl, font: `bold ${isMil ? 15 : 14}px Rajdhani`, fillColor: Cesium.Color.fromCssColorString(col), outlineColor: Cesium.Color.BLACK, outlineWidth: 3, style: Cesium.LabelStyle.FILL_AND_OUTLINE, pixelOffset: new Cesium.Cartesian2(isMil ? 32 : 26, 0), distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 5000000), showBackground: isMil, backgroundColor: isMil ? Cesium.Color.BLACK.withAlpha(0.85) : undefined }
     });
     if (e) { e._rcType = 'aviation'; e._rcData = p; trafficMarks.push(e); }
-    if (p.heading !== undefined) {
+    const tr = isMil ? _milTracker.get(p.icao24) : null;
+    if (tr && tr.trail.length >= 2) {
+      const positions = tr.trail.map(pt => Cesium.Cartesian3.fromDegrees(pt.lon, pt.lat, pt.alt || alt));
+      const trail = viewer?.entities?.add?.({
+        polyline: { positions, width: 3, material: new Cesium.PolylineGlowMaterialProperty({ glowPower: 0.3, color: Cesium.Color.RED.withAlpha(0.6) }), clampToGround: false }
+      });
+      if (trail) trafficMarks.push(trail);
+    } else if (p.heading !== undefined) {
       const hdg = (p.heading || 0) * Math.PI / 180;
       const t = viewer?.entities?.add?.({
         polyline: { positions: [
@@ -689,7 +709,7 @@ function updateGaugeCards() {
 
   const marineAll = Array.isArray(live.marine?.items) ? live.marine.items : [];
   const marineNear = marineAll.filter(x => x.geo && inBounds(x.geo, REGION_BOUNDS));
-  const topWave = [...marineNear].sort((a, b) => (n(b.waveHeight) || 0) - (n(a.waveHeight) || 0))[0];
+  const topWave = [...marineNear].sort((a, b) => (n(b.waveHeight) || 0) - (n(a.waveHeight) || 0))[0] || [...marineAll].sort((a, b) => (n(b.waveHeight) || 0) - (n(a.waveHeight) || 0))[0];
   if (topWave) {
     const wh = n(topWave.waveHeight) || 0;
     const tide = n(topWave.tide);
@@ -933,7 +953,70 @@ function detectAnomalies() {
     }
   }
 
+  const avAll = Array.isArray(live.aviation?.items) ? live.aviation.items : [];
+  const milPlanes = avAll.filter(p => {
+    if (!p.geo) return false;
+    const inIL = inBounds(p.geo, ISRAEL_EXT_BOUNDS);
+    if (!inIL) return false;
+    return p.isMilitary || _classifyAircraft(p.icao24, p.callsign, p.country, p.category).mil;
+  });
+  milPlanes.forEach(p => {
+    const id = p.icao24;
+    if (!_milTracker.has(id)) _milTracker.set(id, { label: p.milLabel || _classifyAircraft(p.icao24, p.callsign, p.country, p.category).label, callsign: p.callsign, country: p.country, firstSeen: now, trail: [] });
+    const tr = _milTracker.get(id);
+    tr.lastSeen = now;
+    tr.callsign = p.callsign || tr.callsign;
+    const last = tr.trail[tr.trail.length - 1];
+    if (!last || Math.abs(last.lat - p.geo.lat) > 0.002 || Math.abs(last.lon - p.geo.lon) > 0.002) {
+      tr.trail.push({ lat: p.geo.lat, lon: p.geo.lon, alt: p.altitude || 0, t: now });
+      if (tr.trail.length > 120) tr.trail.shift();
+    }
+    const cls = tr.label;
+    const key = `mil-${id}-${Math.floor(now / 300000)}`;
+    if (_seenAnomalies.has(key)) return;
+    _seenAnomalies.add(key);
+    pushAiAlert({ id: key, category: 'AVIATION', severity: 4, summary: `\u2708\ufe0f \u05de\u05d8\u05d5\u05e1 \u05dc\u05d0-\u05d0\u05d6\u05e8\u05d7\u05d9: ${cls} | ICAO: ${id} | ${p.callsign || '---'} | ${Math.round(p.altitude || 0)}m`, recommended_action: '\u05de\u05e2\u05e7\u05d1 \u05d0\u05d7\u05e8\u05d9 \u05de\u05e1\u05dc\u05d5\u05dc' });
+  });
+  for (const [id, tr] of _milTracker) { if (now - tr.lastSeen > 600000) _milTracker.delete(id); }
+  if (milPlanes.length && !_seenAnomalies.has(`mil-toast-${Math.floor(now / 300000)}`)) {
+    _seenAnomalies.add(`mil-toast-${Math.floor(now / 300000)}`);
+    showToast(`\u2708\ufe0f ${milPlanes.length} \u05de\u05d8\u05d5\u05e1\u05d9\u05dd \u05dc\u05d0-\u05d0\u05d6\u05e8\u05d7\u05d9\u05d9\u05dd \u05d1\u05e9\u05de\u05d9 \u05d9\u05e9\u05e8\u05d0\u05dc`);
+    window.soundSystem?.alertInfo();
+  }
+  _checkMilAlertCorrelation(milPlanes, now);
+
   if (_seenAnomalies.size > 200) { const arr = [..._seenAnomalies]; _seenAnomalies.clear(); arr.slice(-80).forEach(k => _seenAnomalies.add(k)); }
+}
+
+async function _checkMilAlertCorrelation(milPlanes, now) {
+  if (!milPlanes.length || !currentIsraelAlert?.active || !_lastActiveAreas.length) return;
+  const RADIUS_KM = 40;
+  for (const p of milPlanes) {
+    for (const area of _lastActiveAreas) {
+      const geo = await getAreaGeo(area);
+      if (!geo) continue;
+      const dLat = (p.geo.lat - geo.lat) * 111;
+      const dLon = (p.geo.lon - geo.lon) * 111 * Math.cos(geo.lat * Math.PI / 180);
+      const distKm = Math.sqrt(dLat * dLat + dLon * dLon);
+      if (distKm > RADIUS_KM) continue;
+      const key = `corr-${p.icao24}-${area}-${Math.floor(now / 300000)}`;
+      if (_seenAnomalies.has(key)) continue;
+      _seenAnomalies.add(key);
+      const tr = _milTracker.get(p.icao24);
+      const trackMin = tr ? Math.round((now - tr.firstSeen) / 60000) : 0;
+      const cls = p.milLabel || _classifyAircraft(p.icao24, p.callsign, p.country, p.category).label;
+      pushAiAlert({ id: key, category: 'CORRELATION', severity: 5, summary: `\u26a0\ufe0f \u05e1\u05d9\u05e0\u05db\u05e8\u05d5\u05df: ${cls} (${p.icao24}) ${Math.round(distKm)} \u05e7"\u05de \u05de\u05d0\u05d6\u05d5\u05e8 \u05d4\u05ea\u05e8\u05e2\u05d4 "${area}" | \u05de\u05e2\u05e7\u05d1 ${trackMin} \u05d3\u05e7\u05d5\u05ea | ${p.callsign || '---'} ${Math.round(p.altitude || 0)}m`, recommended_action: '\u05d7\u05e9\u05d3 \u05db\u05dc\u05d9 \u05d8\u05d9\u05e1 \u05d1\u05d0\u05d6\u05d5\u05e8 \u05d4\u05ea\u05e8\u05e2\u05d4 - \u05d0\u05e4\u05e9\u05e8\u05d9 \u05e7\u05e9\u05e8' });
+      const toastHtml = `<div style="color:#ff1744;font-weight:700;font-size:16px">\u26a0\ufe0f \u05e1\u05d9\u05e0\u05db\u05e8\u05d5\u05df \u05db\u05dc\u05d9 \u05d8\u05d9\u05e1 / \u05d4\u05ea\u05e8\u05e2\u05d4</div>`
+        + `<div style="margin-top:4px;font-size:14px">${escapeHtml(cls)} <b>(${p.icao24})</b></div>`
+        + `<div style="font-size:13px;color:var(--text2)">${Math.round(distKm)} \u05e7"\u05de \u05de\u05d0\u05d6\u05d5\u05e8 ${escapeHtml(area)} | \u05de\u05e2\u05e7\u05d1 ${trackMin} \u05d3\u05e7\u05d5\u05ea</div>`;
+      const toastTitle = $('toastTitle');
+      const toastInner = $('toastInner');
+      if (toastTitle) { toastTitle.textContent = '\u26a0\ufe0f CORRELATION'; toastTitle.style.color = '#ff1744'; }
+      if (toastInner) { toastInner.style.borderColor = 'rgba(255,23,68,.7)'; toastInner.style.background = 'rgba(255,23,68,.18)'; toastInner.style.boxShadow = '0 0 40px rgba(255,23,68,.2)'; }
+      showToast(toastHtml, 10000, true);
+      window.soundSystem?.alertCritical();
+    }
+  }
 }
 
 let _flashEnts = [];
@@ -1016,100 +1099,182 @@ function renderAiPanel() {
 function initEntityClick() {
   if (!viewer) return;
   const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
-  handler.setInputAction(click => {
-    const picked = viewer.scene.pick(click.position);
-    if (Cesium.defined(picked) && picked.id?._rcData) showInfoPopup(picked.id._rcData, picked.id._rcType);
-  }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+  const _pick = pos => {
+    try {
+      const picked = viewer.scene.pick(pos);
+      if (Cesium.defined(picked) && picked.id?._rcData) showInfoPopup(picked.id._rcData, picked.id._rcType);
+    } catch(_) {}
+  };
+  handler.setInputAction(click => _pick(click.position), Cesium.ScreenSpaceEventType.LEFT_CLICK);
+  handler.setInputAction(click => _pick(click.position), Cesium.ScreenSpaceEventType.LEFT_CLICK, Cesium.KeyboardEventModifier.CTRL);
 }
 function closePopup() { $('info-popup')?.classList.add('hidden'); }
+
+function _compassSvg(deg) {
+  const r = (deg || 0) * Math.PI / 180;
+  return `<svg viewBox="0 0 60 60"><circle cx="30" cy="30" r="28" fill="none" stroke="rgba(255,255,255,.12)" stroke-width="1.5"/><text x="30" y="12" text-anchor="middle" fill="rgba(255,255,255,.35)" font-size="8" font-family="Orbitron">N</text><line x1="30" y1="30" x2="${30 + 20 * Math.sin(r)}" y2="${30 - 20 * Math.cos(r)}" stroke="#00e5ff" stroke-width="2.5" stroke-linecap="round"/><circle cx="30" cy="30" r="3" fill="#00e5ff"/></svg>`;
+}
+
+function _gauge(lbl, val, unit, color, pct) {
+  return `<div class="popup-gauge"><div class="pg-lbl">${lbl}</div><div class="pg-num" style="color:${color}">${val}</div><div class="pg-unit">${unit}</div><div class="popup-bar"><div class="popup-bar-fill" style="width:${Math.min(100, Math.max(2, pct || 0))}%;background:${color}"></div></div></div>`;
+}
+
+function _aiContext(type, d) {
+  const items = [...aiAlerts, ...aiInsights.map(i => ({ summary: i.result?.summary, category: (i.type || '').toUpperCase(), severity: i.result?.alert_level, recommended_action: i.result?.recommended_action }))];
+  const match = items.find(a => {
+    const s = (a.summary || '').toLowerCase();
+    if (type === 'earthquake' && d.place && s.includes((d.place || '').toLowerCase().slice(0, 15))) return true;
+    if (type === 'aviation' && d.icao24 && s.includes(d.icao24)) return true;
+    if (type === 'marine' && s.includes('גל')) return true;
+    return false;
+  });
+  if (!match) return '';
+  return `<div class="popup-ai"><b>AI \u05e0\u05d9\u05ea\u05d5\u05d7</b><br>${escapeHtml(match.summary || '')}${match.recommended_action ? `<br><span style="color:var(--cyan)">\u2192 ${escapeHtml(match.recommended_action)}</span>` : ''}</div>`;
+}
+
 function showInfoPopup(d, type) {
+  try { _showInfoPopupInner(d, type); } catch(e) { console.warn('popup error:', e); }
+}
+
+function _showInfoPopupInner(d, type) {
   const el = $('info-popup');
   const content = $('info-popup-content');
-  if (!el || !content) return;
+  if (!el || !content || !d) return;
   el.classList.remove('hidden');
+  el.scrollTop = 0;
   let html = '';
+
   if (type === 'earthquake') {
-    const mag = Number(d.magnitude || 0);
-    const sev = mag >= 8 ? 'קיצוני' : mag >= 7 ? 'חמור מאוד' : mag >= 6 ? 'חזק' : mag >= 5 ? 'בינוני' : mag >= 4 ? 'קל' : 'מינורי';
-    const sevColor = mag >= 6 ? '#ff1744' : mag >= 4.5 ? '#ff9100' : '#ffd600';
-    const tsunami = mag >= 6.5 && (d.depth || 999) < 70 ? 'גבוה' : mag >= 6 ? 'בינוני' : 'נמוך';
-    const tsuCol = tsunami === 'גבוה' ? '#ff1744' : tsunami === 'בינוני' ? '#ff9100' : '#00ff88';
-    html = `<div style="text-align:center;font-family:Orbitron;font-size:36px;font-weight:900;color:${sevColor};margin-bottom:6px">RICHTER ${mag.toFixed(2)}</div>
-      <div style="text-align:center;font-size:18px;margin-bottom:10px;color:${sevColor};font-family:Orbitron;letter-spacing:2px">${sev}</div>
-      <div style="text-align:center;font-size:18px;margin-bottom:14px">${d.place || 'לא ידוע'}</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:15px;margin-bottom:10px">
-      <span style="color:var(--text2)">עומק</span><span>${d.depth || '?'} km</span>
-      <span style="color:var(--text2)">סיכון צונאמי</span><span style="color:${tsuCol}">${tsunami}</span>
-      <span style="color:var(--text2)">זמן</span><span>${d.time ? new Date(d.time).toLocaleString() : '?'}</span>
-      <span style="color:var(--text2)">קואורדינטות</span><span>${d.geo?.lat?.toFixed(3) || '?'} / ${d.geo?.lon?.toFixed(3) || '?'}</span></div>
-      <div style="font-size:13px;line-height:1.5;color:var(--text2);border-top:1px solid rgba(255,255,255,.12);padding-top:8px">
-        מדריך ריכטר: 4.0+ מורגש | 5.0+ סיכון מבני | 6.5+ פוטנציאל צונאמי אם רדוד.
-      </div>`;
+    const mag = Number(d.magnitude) || 0;
+    const depth = Number(d.depth) || 0;
+    const sev = mag >= 8 ? '\u05e7\u05d9\u05e6\u05d5\u05e0\u05d9' : mag >= 7 ? '\u05d7\u05de\u05d5\u05e8 \u05de\u05d0\u05d5\u05d3' : mag >= 6 ? '\u05d7\u05d6\u05e7' : mag >= 5 ? '\u05d1\u05d9\u05e0\u05d5\u05e0\u05d9' : mag >= 4 ? '\u05e7\u05dc' : '\u05de\u05d9\u05e0\u05d5\u05e8\u05d9';
+    const sevCol = mag >= 6 ? '#ff1744' : mag >= 4.5 ? '#ff9100' : '#ffd600';
+    const tsunami = mag >= 6.5 && depth < 70 ? '\u05d2\u05d1\u05d5\u05d4' : mag >= 6 ? '\u05d1\u05d9\u05e0\u05d5\u05e0\u05d9' : '\u05e0\u05de\u05d5\u05da';
+    const tsuCol = tsunami === '\u05d2\u05d1\u05d5\u05d4' ? '#ff1744' : tsunami === '\u05d1\u05d9\u05e0\u05d5\u05e0\u05d9' ? '#ff9100' : '#00e676';
+    const place = d.place || '\u05de\u05d9\u05e7\u05d5\u05dd \u05dc\u05d0 \u05d9\u05d3\u05d5\u05e2';
+    const lat = d.geo?.lat; const lon = d.geo?.lon;
+    const intensityPct = Math.min(100, (mag / 10) * 100);
+    const depthPct = Math.min(100, (depth / 700) * 100);
+    html = `<div class="popup-header"><div class="popup-title" style="color:${sevCol};font-size:32px">M ${mag.toFixed(1)}</div><div class="popup-sub" style="color:${sevCol};font-family:Orbitron;letter-spacing:2px">${sev.toUpperCase()}</div></div>`
+      + `<div class="popup-header"><div class="popup-sub">${escapeHtml(place)}</div></div>`
+      + `<div class="popup-gauges">`
+      + _gauge('\u05e2\u05d5\u05e6\u05de\u05d4', mag.toFixed(1), 'Richter', sevCol, intensityPct)
+      + _gauge('\u05e2\u05d5\u05de\u05e7', depth ? Math.round(depth) : '?', 'km', '#4fc3f7', depthPct)
+      + _gauge('\u05e6\u05d5\u05e0\u05d0\u05de\u05d9', tsunami, '', tsuCol, tsunami === '\u05d2\u05d1\u05d5\u05d4' ? 90 : tsunami === '\u05d1\u05d9\u05e0\u05d5\u05e0\u05d9' ? 50 : 10)
+      + `</div>`
+      + `<div class="popup-grid">`
+      + `<span class="pg-label">\u05d6\u05de\u05df</span><span class="pg-val">${d.time ? new Date(d.time).toLocaleString('he-IL') : '?'}</span>`
+      + `<span class="pg-label">\u05e7\u05d5\u05d0\u05d5\u05e8\u05d3\u05d9\u05e0\u05d8\u05d5\u05ea</span><span class="pg-val">${lat != null ? lat.toFixed(3) : '?'} / ${lon != null ? lon.toFixed(3) : '?'}</span>`
+      + `<span class="pg-label">\u05de\u05e8\u05d7\u05e7 \u05de\u05d9\u05e9\u05e8\u05d0\u05dc</span><span class="pg-val">${lat != null && lon != null ? Math.round(Math.sqrt(Math.pow((lat - 31.77) * 111, 2) + Math.pow((lon - 35.21) * 85, 2))) + ' km' : '?'}</span>`
+      + `</div>`
+      + `<div class="popup-note">\u05e8\u05d9\u05db\u05d8\u05e8: 4.0+ \u05de\u05d5\u05e8\u05d2\u05e9 | 5.0+ \u05e1\u05d9\u05db\u05d5\u05df \u05de\u05d1\u05e0\u05d9 | 6.5+ \u05e4\u05d5\u05d8\u05e0\u05e6\u05d9\u05d0\u05dc \u05e6\u05d5\u05e0\u05d0\u05de\u05d9 \u05d0\u05dd \u05e8\u05d3\u05d5\u05d3.</div>`
+      + _aiContext('earthquake', d);
+
+  } else if (type === 'aviation') {
+    const alt = Math.round(d.altitude || d.geo?.alt || 0);
+    const spd = d.velocity != null ? Math.round(d.velocity) : null;
+    const spdKmh = spd != null ? Math.round(spd * 3.6) : null;
+    const hdg = d.heading != null ? Math.round(d.heading) : null;
+    const isMil = d.isMilitary || _classifyAircraft(d.icao24, d.callsign, d.country, d.category).mil;
+    const cls = d.milLabel || _classifyAircraft(d.icao24, d.callsign, d.country, d.category).label;
+    const col = isMil ? '#ff1744' : '#ffd600';
+    const tr = _milTracker.get(d.icao24);
+    const trackMin = tr ? Math.round((Date.now() - tr.firstSeen) / 60000) : 0;
+    const photoId = `acPhoto_${d.icao24}`;
+
+    html = `<img id="${photoId}" class="popup-photo hidden" alt="" onerror="this.classList.add('hidden')" />`
+      + `<div class="popup-header"><div class="popup-title" style="color:${col}">\u2708 ${escapeHtml(d.callsign || d.icao24 || 'AIRCRAFT')}</div>`
+      + `<div class="popup-sub">${escapeHtml(d.country || '')}</div></div>`
+      + (isMil ? `<div style="text-align:center"><span class="popup-mil-badge">\u26a0 ${escapeHtml(cls)}</span></div>` : '')
+      + `<div class="popup-gauges">`
+      + _gauge('\u05d2\u05d5\u05d1\u05d4', alt > 0 ? (alt > 9999 ? (alt/1000).toFixed(1) : alt) : '?', alt > 9999 ? 'km' : 'm', '#4fc3f7', Math.min(100, alt / 150))
+      + (spdKmh != null ? _gauge('\u05de\u05d4\u05d9\u05e8\u05d5\u05ea', spdKmh, 'km/h', '#ffd600', Math.min(100, spdKmh / 10)) : '')
+      + (hdg != null ? `<div class="popup-gauge"><div class="pg-lbl">\u05db\u05d9\u05d5\u05d5\u05df</div><div class="popup-compass">${_compassSvg(hdg)}</div><div class="pg-num" style="color:#00e5ff;font-size:16px">${hdg}\u00b0</div></div>` : '')
+      + `</div>`
+      + `<div class="popup-grid">`
+      + `<span class="pg-label">ICAO</span><span class="pg-val" style="font-family:Orbitron;letter-spacing:1px">${d.icao24 || '?'}</span>`
+      + `<span class="pg-label">Callsign</span><span class="pg-val">${d.callsign || '---'}</span>`
+      + (d.squawk ? `<span class="pg-label">Squawk</span><span class="pg-val" style="color:${d.squawk === '7700' ? '#ff1744' : d.squawk === '7600' ? '#ff9100' : 'inherit'}">${d.squawk}${d.squawk === '7700' ? ' \u26a0 EMERGENCY' : d.squawk === '7600' ? ' COMMS LOST' : ''}</span>` : '')
+      + (d.verticalRate != null ? `<span class="pg-label">\u05e7\u05e6\u05d1 \u05d0\u05e0\u05db\u05d9</span><span class="pg-val" style="color:${d.verticalRate > 2 ? '#00e676' : d.verticalRate < -2 ? '#ff9100' : 'var(--text)'}">${d.verticalRate > 0 ? '+' : ''}${d.verticalRate.toFixed(1)} m/s ${d.verticalRate > 2 ? '\u2191' : d.verticalRate < -2 ? '\u2193' : '\u2192'}</span>` : '')
+      + `<span class="pg-label">\u05de\u05d9\u05e7\u05d5\u05dd</span><span class="pg-val">${d.geo?.lat?.toFixed(3) || '?'}, ${d.geo?.lon?.toFixed(3) || '?'}</span>`
+      + (tr ? `<span class="pg-label">\u05d6\u05de\u05df \u05de\u05e2\u05e7\u05d1</span><span class="pg-val">${trackMin} \u05d3\u05e7\u05d5\u05ea</span>` : '')
+      + (tr?.trail?.length ? `<span class="pg-label">\u05e0\u05e7\u05d5\u05d3\u05d5\u05ea \u05de\u05e1\u05dc\u05d5\u05dc</span><span class="pg-val">${tr.trail.length}</span>` : '')
+      + `</div>`
+      + _aiContext('aviation', d);
+
+    if (d.icao24) {
+      setTimeout(() => {
+        const img = document.getElementById(photoId);
+        if (!img) return;
+        fetch(`https://api.planespotters.net/pub/photos/hex/${d.icao24}`, { signal: AbortSignal.timeout(5000) })
+          .then(r => r.json()).then(j => {
+            const photo = j?.photos?.[0]?.thumbnail_large?.src || j?.photos?.[0]?.thumbnail?.src;
+            if (photo && img) { img.src = photo; img.classList.remove('hidden'); }
+          }).catch(() => {});
+      }, 100);
+    }
+
   } else if (type === 'weather') {
-    const t = d.temperature, w = d.windspeed || 0;
-    const col = t > 35 ? '#ff1744' : t > 25 ? '#ff9100' : t > 15 ? '#ffd600' : t > 5 ? '#00e5ff' : '#2196f3';
-    html = `<div style="text-align:center;font-family:Orbitron;font-size:32px;font-weight:900;color:${col};margin-bottom:8px">${Math.round(t)}°C</div>
-      <div style="text-align:center;font-size:20px;margin-bottom:14px">${d.city || 'לא ידוע'}</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:15px">
-      <span style="color:var(--text2)">טמפרטורה</span><span style="color:${col}">${t}°C</span>
-      <span style="color:var(--text2)">רוח</span><span>${Math.round(w)} km/h</span>
-      <span style="color:var(--text2)">קואורדינטות</span><span>${d.geo?.lat?.toFixed(2) || '?'}, ${d.geo?.lon?.toFixed(2) || '?'}</span>
-      ${d.humidity !== undefined ? `<span style="color:var(--text2)">לחות</span><span>${d.humidity}%</span>` : ''}
-      </div>`;
+    const t = Number(d.temperature) || 0; const w = Number(d.windspeed) || 0;
+    const col = t > 40 ? '#ff1744' : t > 30 ? '#ff9100' : t > 20 ? '#ffd600' : t > 10 ? '#00e5ff' : '#2196f3';
+    html = `<div class="popup-header"><div class="popup-title" style="color:${col}">${Math.round(t)}\u00b0C</div><div class="popup-sub">${escapeHtml(d.city || '\u05dc\u05d0 \u05d9\u05d3\u05d5\u05e2')}</div></div>`
+      + `<div class="popup-gauges">`
+      + _gauge('\u05d8\u05de\u05e4\u05f3', Math.round(t), '\u00b0C', col, Math.min(100, ((t + 20) / 70) * 100))
+      + _gauge('\u05e8\u05d5\u05d7', Math.round(w), 'km/h', w > 60 ? '#ff1744' : w > 30 ? '#ff9100' : '#00e5ff', Math.min(100, w / 1.2))
+      + (d.humidity != null ? _gauge('\u05dc\u05d7\u05d5\u05ea', Math.round(d.humidity), '%', '#7c4dff', d.humidity) : '')
+      + `</div>`
+      + `<div class="popup-grid"><span class="pg-label">\u05de\u05d9\u05e7\u05d5\u05dd</span><span class="pg-val">${d.geo?.lat?.toFixed(2) || '?'}, ${d.geo?.lon?.toFixed(2) || '?'}</span></div>`;
+
   } else if (type === 'marine') {
     const wh = parseFloat(d.waveHeight) || 0;
-    const col = wh > 4 ? '#ff1744' : wh > 2 ? '#ff9100' : '#00bcd4';
-    html = `<div style="text-align:center;font-family:Orbitron;font-size:32px;font-weight:900;color:${col};margin-bottom:8px">${wh.toFixed(1)}m גלים</div>
-      <div style="text-align:center;font-size:18px;margin-bottom:14px">${d.station || 'תחנה ימית'}</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:15px">
-      <span style="color:var(--text2)">גובה גלים</span><span style="color:${col}">${wh.toFixed(1)} m</span>
-      <span style="color:var(--text2)">טמפ\' מים</span><span>${d.waterTemp || '?'}°C</span>
-      <span style="color:var(--text2)">קואורדינטות</span><span>${d.geo?.lat?.toFixed(2) || '?'}, ${d.geo?.lon?.toFixed(2) || '?'}</span>
-      </div>
-      <div style="font-size:13px;line-height:1.5;color:var(--text2);border-top:1px solid rgba(255,255,255,.12);padding-top:8px;margin-top:10px">
-        גלים מעל 2m: סכנה לשייט קטן | מעל 4m: אזהרה ימית כללית | מעל 6m: סופה ימית.
-      </div>`;
+    const col = wh > 5 ? '#ff1744' : wh > 3 ? '#ff9100' : wh > 1.5 ? '#ffd600' : '#00bcd4';
+    html = `<div class="popup-header"><div class="popup-title" style="color:${col}">\ud83c\udf0a ${wh.toFixed(1)}m</div><div class="popup-sub">${escapeHtml(d.station || '\u05ea\u05d7\u05e0\u05d4 \u05d9\u05de\u05d9\u05ea')}</div></div>`
+      + `<div class="popup-gauges">`
+      + _gauge('\u05d2\u05dc\u05d9\u05dd', wh.toFixed(1), 'm', col, Math.min(100, (wh / 10) * 100))
+      + (d.waterTemp ? _gauge('\u05de\u05d9\u05dd', d.waterTemp, '\u00b0C', '#00bcd4', Math.min(100, d.waterTemp * 3)) : '')
+      + (d.tide != null ? _gauge('\u05d2\u05d0\u05d5\u05ea', parseFloat(d.tide).toFixed(1), 'm', '#7c4dff', 50 + parseFloat(d.tide) * 25) : '')
+      + `</div>`
+      + `<div class="popup-grid"><span class="pg-label">\u05de\u05d9\u05e7\u05d5\u05dd</span><span class="pg-val">${d.geo?.lat?.toFixed(2) || '?'}, ${d.geo?.lon?.toFixed(2) || '?'}</span></div>`
+      + `<div class="popup-note">\u05d2\u05dc\u05d9\u05dd \u05de\u05e2\u05dc 2m: \u05e1\u05db\u05e0\u05d4 \u05dc\u05e9\u05d9\u05d9\u05d8 \u05e7\u05d8\u05df | \u05de\u05e2\u05dc 4m: \u05d0\u05d6\u05d4\u05e8\u05d4 \u05d9\u05de\u05d9\u05ea | \u05de\u05e2\u05dc 6m: \u05e1\u05d5\u05e4\u05d4.</div>`
+      + _aiContext('marine', d);
+
   } else if (type === 'satellite' || type === 'iss') {
     const isISS = type === 'iss' || /ISS|ZARYA|25544/i.test(d.name || '');
     const col = isISS ? '#7c4dff' : '#4fc3f7';
-    html = `<div style="text-align:center;font-family:Orbitron;font-size:24px;font-weight:900;color:${col};margin-bottom:8px">${isISS ? '🛰 ISS' : '◈ ' + (d.name || 'SAT')}</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:15px;margin-top:10px">
-      <span style="color:var(--text2)">שם</span><span>${d.name || 'לא ידוע'}</span>
-      ${d.noradId ? `<span style="color:var(--text2)">NORAD ID</span><span>${d.noradId}</span>` : ''}
-      ${d.geo ? `<span style="color:var(--text2)">מיקום</span><span>${d.geo.lat?.toFixed(2) || '?'}°, ${d.geo.lon?.toFixed(2) || '?'}°</span>` : ''}
-      ${d.altitude ? `<span style="color:var(--text2)">גובה</span><span>${Math.round(d.altitude)} km</span>` : ''}
-      ${d.inclination ? `<span style="color:var(--text2)">הטיה</span><span>${d.inclination}°</span>` : ''}
-      ${d.meanMotion ? `<span style="color:var(--text2)">סיבובים/יום</span><span>${parseFloat(d.meanMotion).toFixed(2)}</span>` : ''}
-      </div>`;
-  } else if (type === 'aviation') {
-    html = `<div style="text-align:center;font-family:Orbitron;font-size:24px;font-weight:900;color:#ffd600;margin-bottom:8px">✈ ${d.callsign || d.icao24 || 'AIRCRAFT'}</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:15px;margin-top:10px">
-      ${d.callsign ? `<span style="color:var(--text2)">קריאה</span><span>${d.callsign}</span>` : ''}
-      ${d.country ? `<span style="color:var(--text2)">מדינה</span><span>${d.country}</span>` : ''}
-      ${d.icao24 ? `<span style="color:var(--text2)">ICAO</span><span>${d.icao24}</span>` : ''}
-      <span style="color:var(--text2)">גובה</span><span>${d.altitude || d.geo?.alt || '?'} m</span>
-      ${d.heading !== undefined ? `<span style="color:var(--text2)">כיוון</span><span>${Math.round(d.heading)}°</span>` : ''}
-      ${d.velocity !== undefined ? `<span style="color:var(--text2)">מהירות</span><span>${Math.round(d.velocity)} m/s</span>` : ''}
-      <span style="color:var(--text2)">מיקום</span><span>${d.geo?.lat?.toFixed(3) || '?'}, ${d.geo?.lon?.toFixed(3) || '?'}</span>
-      </div>`;
+    html = `<div class="popup-header"><div class="popup-title" style="color:${col}">${isISS ? '\ud83d\udef0 ISS' : '\u25c8 ' + escapeHtml(d.name || 'SAT')}</div></div>`
+      + `<div class="popup-gauges">`
+      + (d.altitude ? _gauge('\u05d2\u05d5\u05d1\u05d4', Math.round(d.altitude), 'km', col, Math.min(100, d.altitude / 5)) : '')
+      + (d.meanMotion ? _gauge('\u05e1\u05d9\u05d1\u05d5\u05d1/\u05d9\u05d5\u05dd', parseFloat(d.meanMotion).toFixed(1), '', col, parseFloat(d.meanMotion) * 6) : '')
+      + (d.inclination ? _gauge('\u05d4\u05d8\u05d9\u05d4', d.inclination, '\u00b0', col, d.inclination / 1.8) : '')
+      + `</div>`
+      + `<div class="popup-grid">`
+      + (d.noradId ? `<span class="pg-label">NORAD</span><span class="pg-val" style="font-family:Orbitron">${d.noradId}</span>` : '')
+      + (d.geo ? `<span class="pg-label">\u05de\u05d9\u05e7\u05d5\u05dd</span><span class="pg-val">${d.geo.lat?.toFixed(2) || '?'}\u00b0, ${d.geo.lon?.toFixed(2) || '?'}\u00b0</span>` : '')
+      + `</div>`;
+
   } else if (type === 'ships') {
-    html = `<div style="text-align:center;font-family:Orbitron;font-size:24px;font-weight:900;color:#00bfa5;margin-bottom:8px">⛴ ${d.name || 'VESSEL'}</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:15px;margin-top:10px">
-      ${d.name ? `<span style="color:var(--text2)">שם</span><span>${d.name}</span>` : ''}
-      ${d.mmsi ? `<span style="color:var(--text2)">MMSI</span><span>${d.mmsi}</span>` : ''}
-      ${d.shipType ? `<span style="color:var(--text2)">סוג</span><span>TYPE ${d.shipType}</span>` : ''}
-      ${d.heading !== undefined ? `<span style="color:var(--text2)">כיוון</span><span>${Math.round(d.heading)}°</span>` : ''}
-      ${d.speed !== undefined ? `<span style="color:var(--text2)">מהירות</span><span>${d.speed} kn</span>` : ''}
-      <span style="color:var(--text2)">מיקום</span><span>${d.geo?.lat?.toFixed(3) || '?'}, ${d.geo?.lon?.toFixed(3) || '?'}</span>
-      </div>`;
+    const st = d.shipType || 0;
+    const stName = st >= 70 && st <= 79 ? '\u05de\u05db\u05dc\u05d9\u05ea \u05de\u05d8\u05e2\u05df' : st >= 60 && st <= 69 ? '\u05de\u05e9\u05d0 \u05e0\u05d5\u05e1\u05e2\u05d9\u05dd' : st >= 80 && st <= 89 ? '\u05de\u05db\u05dc\u05d9\u05ea \u05d3\u05dc\u05e7' : '\u05db\u05dc\u05d9 \u05e9\u05d9\u05d9\u05d8';
+    html = `<div class="popup-header"><div class="popup-title" style="color:#00bfa5">\u26f4 ${escapeHtml(d.name || 'VESSEL')}</div><div class="popup-sub">${stName}</div></div>`
+      + `<div class="popup-gauges">`
+      + (d.speed != null ? _gauge('\u05de\u05d4\u05d9\u05e8\u05d5\u05ea', d.speed, 'kn', '#00e5ff', Math.min(100, d.speed * 4)) : '')
+      + (d.heading != null ? `<div class="popup-gauge"><div class="pg-lbl">\u05db\u05d9\u05d5\u05d5\u05df</div><div class="popup-compass">${_compassSvg(d.heading)}</div><div class="pg-num" style="color:#00e5ff;font-size:16px">${Math.round(d.heading)}\u00b0</div></div>` : '')
+      + `</div>`
+      + `<div class="popup-grid">`
+      + (d.mmsi ? `<span class="pg-label">MMSI</span><span class="pg-val" style="font-family:Orbitron">${d.mmsi}</span>` : '')
+      + `<span class="pg-label">\u05de\u05d9\u05e7\u05d5\u05dd</span><span class="pg-val">${d.geo?.lat?.toFixed(3) || '?'}, ${d.geo?.lon?.toFixed(3) || '?'}</span>`
+      + (d.shipType ? `<span class="pg-label">\u05e7\u05d5\u05d3 \u05e1\u05d5\u05d2</span><span class="pg-val">AIS TYPE ${d.shipType}</span>` : '')
+      + `</div>`;
+
   } else if (d._isAlert) {
-    const col = d.severity >= 4 ? '#ff1744' : d.severity >= 3 ? '#ff9100' : '#ffd600';
-    html = `<div style="text-align:center;font-family:Orbitron;font-size:30px;font-weight:900;color:${col};margin-bottom:8px">⚡ רמת התראה ${d.severity}</div>
-      <div style="text-align:center;font-size:18px;margin-bottom:14px">${d.category || 'מערכת'}</div>
-      <div style="font-size:16px;line-height:1.7;margin-bottom:12px">${d.summary || ''}</div>
-      <div style="font-size:13px;color:var(--text2)">ביטחון: ${((d.confidence || 0) * 100).toFixed(0)}%</div>`;
+    const col = (d.severity || 0) >= 4 ? '#ff1744' : (d.severity || 0) >= 3 ? '#ff9100' : '#ffd600';
+    html = `<div class="popup-header"><div class="popup-title" style="color:${col}">\u26a1 \u05e8\u05de\u05d4 ${d.severity || '?'}</div><div class="popup-sub">${escapeHtml(d.category || '\u05de\u05e2\u05e8\u05db\u05ea')}</div></div>`
+      + `<div style="font-size:15px;line-height:1.6;margin-bottom:10px">${escapeHtml(d.summary || '')}</div>`
+      + (d.recommended_action ? `<div style="color:var(--cyan);font-size:14px">\u2192 ${escapeHtml(d.recommended_action)}</div>` : '')
+      + (d.confidence ? `<div style="margin-top:8px;font-size:12px;color:var(--text2)">\u05d1\u05d9\u05d8\u05d7\u05d5\u05df: ${((d.confidence || 0) * 100).toFixed(0)}%</div>` : '');
+
   } else {
-    html = `<div style="font-size:16px;line-height:1.5">${JSON.stringify(d, null, 2).replace(/\n/g, '<br>')}</div>`;
+    html = `<div style="font-size:14px;line-height:1.5;word-break:break-all"><pre style="white-space:pre-wrap;margin:0;color:var(--text2)">${escapeHtml(JSON.stringify(d, null, 2))}</pre></div>`;
   }
   content.innerHTML = html;
 }
@@ -1141,7 +1306,7 @@ function absorbAllData(all) {
   if (all.israel_alerts) handleIsraelAlerts(all.israel_alerts).catch(() => {});
 }
 
-function renderAreas(allAreas, isPre = false, isClear = false) {
+function renderAreas(allAreas, isPre = false, isClear = false, isShelter = false) {
   const box = $('areas');
   if (!box) return;
   const areas = filterAreas(allAreas || []);
@@ -1154,10 +1319,11 @@ function renderAreas(allAreas, isPre = false, isClear = false) {
       : '<div style="color:rgba(159,179,209,.8);padding:10px 0">אין התרעות פעילות כרגע</div>';
     return;
   }
-  const pillClass = isClear ? 'green' : (isPre ? 'amber' : 'red');
-  const pillText = isClear ? 'CLEAR' : (isPre ? 'PRE' : 'RED');
+  const pillClass = isClear ? 'green' : ((isPre || isShelter) ? 'amber' : 'red');
+  const pillText = isClear ? 'CLEAR' : (isShelter ? '🛡 SHELTER' : (isPre ? 'PRE' : 'RED'));
+  const migunCol = isClear ? '✅' : (isShelter ? '⏳' : '---');
   box.innerHTML = areas.map((a, i) => (
-    `<div class="area" data-area-idx="${i}" style="cursor:pointer"><span class="pill ${pillClass}">${pillText}</span><span class="areaName">${escapeHtml(a)}</span><span class="pill" id="migun-${i}" style="margin-right:auto">${isClear ? '✅' : '---'}</span></div>`
+    `<div class="area" data-area-idx="${i}" style="cursor:pointer"><span class="pill ${pillClass}">${pillText}</span><span class="areaName">${escapeHtml(a)}</span><span class="pill" id="migun-${i}" style="margin-right:auto">${migunCol}</span></div>`
   )).join('');
 }
 
@@ -1215,7 +1381,81 @@ function populateWlSuggestions(query) {
 }
 
 function escapeHtml(s) {
-  return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\u0027':'&#39;'}[c] || c));
+  return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c] || c));
+}
+
+function _formatDuration(ms) {
+  const totalSec = Math.round(ms / 1000);
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  if (m > 0) return `${m} \u05d3\u05e7\u05d5\u05ea \u05d5-${s} \u05e9\u05e0\u05d9\u05d5\u05ea`;
+  return `${s} \u05e9\u05e0\u05d9\u05d5\u05ea`;
+}
+
+function _showExitClear() {
+  const endTime = Date.now();
+  const startTime = _alertStartTime || endTime;
+  const durationMs = endTime - startTime;
+  const startStr = new Date(startTime).toLocaleTimeString('he-IL');
+  const endStr = new Date(endTime).toLocaleTimeString('he-IL');
+  const durStr = _formatDuration(durationMs);
+  const areasStr = _lastActiveAreas.slice(0, 8).join(', ') + (_lastActiveAreas.length > 8 ? ` (+${_lastActiveAreas.length - 8})` : '');
+
+  const head = document.querySelector('#alertHead b');
+  const instr = $('instructions');
+  if (head) { head.textContent = '\u2705 \u05e0\u05d9\u05ea\u05df \u05dc\u05e6\u05d0\u05ea \u05de\u05d4\u05de\u05e8\u05d7\u05d1 \u05d4\u05de\u05d5\u05d2\u05df'; head.style.color = '#00e676'; }
+  if (instr) instr.textContent = `\u05d4\u05d0\u05d9\u05e8\u05d5\u05e2 \u05d4\u05e1\u05ea\u05d9\u05d9\u05dd | \u05d4\u05ea\u05d7\u05dc\u05d4: ${startStr} | \u05e1\u05d9\u05d5\u05dd: ${endStr} | \u05de\u05e9\u05da: ${durStr}`;
+
+  const toastTitle = $('toastTitle');
+  if (toastTitle) { toastTitle.textContent = '\u2705 \u05d4\u05d0\u05d9\u05e8\u05d5\u05e2 \u05d4\u05e1\u05ea\u05d9\u05d9\u05dd'; toastTitle.style.color = '#00e676'; }
+  const toastInner = $('toastInner');
+  if (toastInner) {
+    toastInner.style.borderColor = 'rgba(0,230,118,.55)';
+    toastInner.style.background = 'rgba(0,230,118,.12)';
+    toastInner.style.boxShadow = '0 0 32px rgba(0,230,118,.14)';
+  }
+  const toastHtml = `<div style="margin-bottom:6px;font-size:17px;color:#00e676;font-weight:700">\u2705 \u05e0\u05d9\u05ea\u05df \u05dc\u05e6\u05d0\u05ea \u05de\u05d4\u05de\u05e8\u05d7\u05d1 \u05d4\u05de\u05d5\u05d2\u05df</div>`
+    + `<div style="display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:14px;line-height:1.5">`
+    + `<span style="color:var(--text2)">\u05d4\u05ea\u05d7\u05dc\u05d4</span><span style="color:#fff;font-family:Orbitron;font-size:13px">${startStr}</span>`
+    + `<span style="color:var(--text2)">\u05e1\u05d9\u05d5\u05dd</span><span style="color:#00e676;font-family:Orbitron;font-size:13px">${endStr}</span>`
+    + `<span style="color:var(--text2)">\u05de\u05e9\u05da \u05d1\u05de\u05e8\u05d7\u05d1 \u05de\u05d5\u05d2\u05df</span><span style="color:#fff;font-weight:700">${durStr}</span>`
+    + (areasStr ? `<span style="color:var(--text2)">\u05d0\u05d6\u05d5\u05e8\u05d9\u05dd</span><span style="color:var(--text2);font-size:13px">${escapeHtml(areasStr)}</span>` : '')
+    + `</div>`;
+  showToast(toastHtml, 12000, true);
+  window.soundSystem?.alertInfo();
+
+  const popup = $('info-popup');
+  const popContent = $('info-popup-content');
+  if (popup && popContent) {
+    popContent.innerHTML = `<div style="text-align:center;margin-bottom:14px">`
+      + `<div style="font-family:Orbitron;font-size:28px;font-weight:900;color:#00e676;margin-bottom:6px">\u2705 \u05d4\u05d0\u05d9\u05e8\u05d5\u05e2 \u05d4\u05e1\u05ea\u05d9\u05d9\u05dd</div>`
+      + `<div style="font-size:16px;color:var(--text2)">\u05e0\u05d9\u05ea\u05df \u05dc\u05e6\u05d0\u05ea \u05de\u05d4\u05de\u05e8\u05d7\u05d1 \u05d4\u05de\u05d5\u05d2\u05df</div></div>`
+      + `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;text-align:center;margin-bottom:16px">`
+      + `<div style="background:rgba(255,255,255,.06);border-radius:10px;padding:10px 8px"><div style="font-size:11px;color:var(--text2);font-family:Orbitron;letter-spacing:1px">\u05d4\u05ea\u05d7\u05dc\u05d4</div><div style="font-family:Orbitron;font-size:18px;color:#ff9100;margin-top:4px">${startStr}</div></div>`
+      + `<div style="background:rgba(255,255,255,.06);border-radius:10px;padding:10px 8px"><div style="font-size:11px;color:var(--text2);font-family:Orbitron;letter-spacing:1px">\u05e1\u05d9\u05d5\u05dd</div><div style="font-family:Orbitron;font-size:18px;color:#00e676;margin-top:4px">${endStr}</div></div>`
+      + `<div style="background:rgba(255,255,255,.06);border-radius:10px;padding:10px 8px"><div style="font-size:11px;color:var(--text2);font-family:Orbitron;letter-spacing:1px">\u05de\u05e9\u05da</div><div style="font-family:Orbitron;font-size:18px;color:#fff;margin-top:4px">${durStr}</div></div>`
+      + `</div>`
+      + (_lastActiveAreas.length ? `<div style="border-top:1px solid rgba(0,230,118,.2);padding-top:10px;font-size:14px;color:var(--text2);line-height:1.6"><b style="color:#00e676">\u05d0\u05d6\u05d5\u05e8\u05d9\u05dd:</b> ${escapeHtml(_lastActiveAreas.join(', '))}</div>` : '');
+    popup.style.borderColor = 'rgba(0,230,118,.45)';
+    popup.style.boxShadow = '0 0 48px rgba(0,230,118,.15), 0 0 120px rgba(0,0,0,.5)';
+    popup.classList.remove('hidden');
+    setTimeout(() => { popup.classList.add('hidden'); popup.style.borderColor = ''; popup.style.boxShadow = ''; }, 30000);
+  }
+
+  clearPulses();
+  renderAreas(_lastActiveAreas, false, true);
+  _lastActiveAreas.forEach(async (a) => {
+    const geo = await getAreaGeo(a);
+    if (geo) addPulseAt(geo.lon, geo.lat, '#00e676', a, true);
+  });
+  renderHazardsPanel();
+  setTimeout(() => {
+    clearPulses(); renderAreas([]); _lastActiveAreas = []; _alertStartTime = 0;
+    const h = document.querySelector('#alertHead b');
+    const ins = $('instructions');
+    if (h) { h.textContent = '\u05e6\u05d1\u05e2 \u05d0\u05d3\u05d5\u05dd - \u05d9\u05e9\u05e8\u05d0\u05dc'; h.style.color = 'var(--red)'; }
+    if (ins) ins.textContent = '';
+  }, 300000);
 }
 
 async function handleIsraelAlerts(d) {
@@ -1245,30 +1485,63 @@ async function handleIsraelAlerts(d) {
     clearPulses();
     if (d?.source === 'oref') _preferOrefUntil = 0;
     const head = document.querySelector('#alertHead b');
-    if (hadActive) {
-      if (head) { head.textContent = '✅ ניתן לצאת מהמרחב המוגן'; head.style.color = '#00e676'; }
-      if (instr) instr.textContent = 'ההתרעה הסתיימה - ניתן לצאת בזהירות';
-      const toastTitle = $('toastTitle');
-      if (toastTitle) toastTitle.textContent = '✅ ניתן לצאת';
-      const toastInner = $('toastInner');
-      if (toastInner) {
-        toastInner.style.borderColor = 'rgba(0,230,118,.55)';
-        toastInner.style.background = 'rgba(0,230,118,.12)';
-        toastInner.style.boxShadow = '0 0 32px rgba(0,230,118,.14)';
+    if (d?.isExit) {
+      if (_migunTimeoutId) { clearTimeout(_migunTimeoutId); _migunTimeoutId = null; }
+      if (_migunCountdownId) { clearInterval(_migunCountdownId); _migunCountdownId = null; }
+      if (d.areas?.length) _lastActiveAreas = [...new Set([..._lastActiveAreas, ...d.areas])];
+      _showExitClear();
+    } else if (hadActive) {
+      let maxMigunMs = 0;
+      try {
+        const meta = await loadAreaMeta();
+        for (const a of _lastActiveAreas) {
+          const s = meta.migun.get(a);
+          if (s !== undefined && s * 1000 > maxMigunMs) maxMigunMs = s * 1000;
+        }
+      } catch(_) {}
+      if (!maxMigunMs) maxMigunMs = 60000;
+      const elapsed = _alertStartTime ? Date.now() - _alertStartTime : Infinity;
+      const remaining = Math.max(0, maxMigunMs - elapsed);
+
+      if (remaining > 0) {
+        if (head) { head.textContent = '⏳ יש להישאר במרחב המוגן'; head.style.color = '#ff9100'; }
+        if (instr) instr.textContent = `נותרו ${Math.ceil(remaining / 1000)} שניות להישאר במרחב המוגן`;
+        const toastTitle = $('toastTitle');
+        if (toastTitle) { toastTitle.textContent = '⏳ הישארו במרחב המוגן'; toastTitle.style.color = '#ff9100'; }
+        const toastInner = $('toastInner');
+        if (toastInner) {
+          toastInner.style.borderColor = 'rgba(255,145,0,.55)';
+          toastInner.style.background = 'rgba(255,145,0,.12)';
+          toastInner.style.boxShadow = '0 0 32px rgba(255,145,0,.14)';
+        }
+        showToast('⏳ הישארו במרחב המוגן');
+        window.soundSystem?.alertInfo();
+        renderAreas(_lastActiveAreas, false, false, true);
+        _lastActiveAreas.forEach(async (a) => {
+          const geo = await getAreaGeo(a);
+          if (geo) addPulseAt(geo.lon, geo.lat, '#ff9100', a);
+        });
+        if (_migunCountdownId) clearInterval(_migunCountdownId);
+        const migunEnd = Date.now() + remaining;
+        _migunCountdownId = setInterval(() => {
+          const left = Math.max(0, Math.ceil((migunEnd - Date.now()) / 1000));
+          const ins = $('instructions');
+          if (ins) ins.textContent = left > 0 ? `נותרו ${left} שניות להישאר במרחב המוגן` : '';
+          if (left <= 0) { clearInterval(_migunCountdownId); _migunCountdownId = null; }
+        }, 1000);
+        if (_migunTimeoutId) clearTimeout(_migunTimeoutId);
+        _migunTimeoutId = setTimeout(() => {
+          if (_migunCountdownId) { clearInterval(_migunCountdownId); _migunCountdownId = null; }
+          _showExitClear();
+        }, remaining);
+      } else {
+        _showExitClear();
       }
-      showToast('✅ ניתן לצאת מהמרחב המוגן');
-      window.soundSystem?.alertInfo();
-      renderAreas(_lastActiveAreas, false, true);
-      _lastActiveAreas.forEach(async (a) => {
-        const geo = await getAreaGeo(a);
-        if (geo) addPulseAt(geo.lon, geo.lat, '#00e676', a, true);
-      });
-      setTimeout(() => { clearPulses(); renderAreas([]); _lastActiveAreas = []; if (head) { head.textContent = 'צבע אדום - ישראל'; head.style.color = 'var(--red)'; } if (instr) instr.textContent = ''; }, 300000);
     } else {
       if (head) { head.textContent = 'צבע אדום - ישראל'; head.style.color = 'var(--red)'; }
       if (instr) instr.textContent = '';
       const toastTitle = $('toastTitle');
-      if (toastTitle) toastTitle.textContent = 'התראה נכנסת';
+      if (toastTitle) { toastTitle.textContent = 'התראה נכנסת'; toastTitle.style.color = ''; }
       const toastInner = $('toastInner');
       if (toastInner) {
         toastInner.style.borderColor = 'rgba(255,23,68,.55)';
@@ -1281,12 +1554,15 @@ async function handleIsraelAlerts(d) {
     return;
   }
 
+  if (_migunTimeoutId) { clearTimeout(_migunTimeoutId); _migunTimeoutId = null; }
+  if (_migunCountdownId) { clearInterval(_migunCountdownId); _migunCountdownId = null; }
+
   const isPre = Number(d.category) === 14;
   if (d?.source === 'oref') _preferOrefUntil = Date.now() + 4 * 60 * 1000;
   const head = document.querySelector('#alertHead b');
   if (head) { head.textContent = isPre ? 'הנחיה מקדימה - ישראל' : 'צבע אדום - ישראל'; head.style.color = isPre ? 'var(--amber)' : 'var(--red)'; }
   const toastTitle = $('toastTitle');
-  if (toastTitle) toastTitle.textContent = isPre ? 'הנחיה מקדימה' : 'התראה נכנסת';
+  if (toastTitle) { toastTitle.textContent = isPre ? 'הנחיה מקדימה' : 'התראה נכנסת'; toastTitle.style.color = isPre ? '#ff9100' : ''; }
   const toastInner = $('toastInner');
   if (toastInner) {
     if (isPre) {
@@ -1305,6 +1581,7 @@ async function handleIsraelAlerts(d) {
   const sig = `${d.id}|${_watchEnabled}|${[..._watchlist].join(',')}`;
   if (!d.id || sig === lastAlertId) return;
   lastAlertId = sig;
+  _alertStartTime = Date.now();
 
   clearPulses();
 
@@ -1321,13 +1598,13 @@ async function handleIsraelAlerts(d) {
     const el = document.getElementById(`migun-${idx}`);
     if (el) el.textContent = migun === null ? '---' : `${migun}s`;
     if (geo) {
-      addPulseAt(geo.lon, geo.lat, color, a);
+      addPulseAt(geo.lon, geo.lat, color, a, false, d.category);
     } else {
       const r1 = hash01(a);
       const r2 = hash01(a + 'x');
       const dLon = (r1 - 0.5) * 0.32;
       const dLat = (r2 - 0.5) * 0.22;
-      addPulseAt(ISRAEL_VIEW_3D.lon + dLon, ISRAEL_VIEW_3D.lat + dLat, color, a);
+      addPulseAt(ISRAEL_VIEW_3D.lon + dLon, ISRAEL_VIEW_3D.lat + dLat, color, a, false, d.category);
     }
   });
 
@@ -1499,6 +1776,54 @@ async function fetchPublicISS() {
   } catch(_) {}
 }
 
+const _MIL_HEX = [
+  ['ae', 'af', '\u05e6\u05d1\u05d0 \u05d0\u05e8\u05d4"\u05d1'],
+  ['43c', '43c', 'UK Military'],
+  ['3b', '3b', 'French Military'],
+  ['3e', '3e', 'German Military'],
+  ['150', '15f', 'Russian Military'],
+  ['4b8', '4bf', 'Turkish Military'],
+  ['730', '737', 'Iranian Military'],
+  ['778', '77f', 'Syrian Military'],
+  ['e4', 'e4', 'NATO'],
+];
+const _IL_AIRLINE_CS = ['ELY','LY','ICL','6H','ISR','5C','RVR'];
+
+function _classifyAircraft(icao24, callsign, country, category) {
+  const hex = (icao24 || '').toLowerCase();
+  for (const [lo, hi, label] of _MIL_HEX) {
+    if (hex >= lo && hex <= hi + 'ffff') return { mil: true, label };
+  }
+  const cs = (callsign || '').trim().toUpperCase();
+  if (!cs && country && country !== 'Israel') return { mil: true, label: `${country} (\u05dc\u05dc\u05d0 callsign)` };
+  const cat = Number(category) || 0;
+  if (cat === 14) return { mil: true, label: `UAV ${country || ''}` };
+  if (_IL_AIRLINE_CS.some(p => cs.startsWith(p))) return { mil: false, label: '' };
+  return { mil: false, label: '' };
+}
+
+async function fetchPublicAviation() {
+  try {
+    const url = `https://opensky-network.org/api/states/all?lamin=${ISRAEL_EXT_BOUNDS.minLat}&lamax=${ISRAEL_EXT_BOUNDS.maxLat}&lomin=${ISRAEL_EXT_BOUNDS.minLon}&lomax=${ISRAEL_EXT_BOUNDS.maxLon}`;
+    const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!r.ok) throw 0;
+    const d = await r.json();
+    if (!d?.states?.length) return;
+    const items = d.states.filter(s => s[5] != null && s[6] != null && !s[8]).map(s => {
+      const cls = _classifyAircraft(s[0], s[1], s[2], s[17]);
+      return {
+        icao24: s[0], callsign: (s[1] || '').trim(), country: s[2],
+        geo: { lat: s[6], lon: s[5], alt: s[13] || s[7] || 0 },
+        altitude: s[13] || s[7] || 0, heading: s[10], velocity: s[9],
+        verticalRate: s[11], squawk: s[14], category: s[17],
+        isMilitary: cls.mil, milLabel: cls.label,
+        timestamp: new Date().toISOString()
+      };
+    });
+    if (items.length) live.aviation = { timestamp: new Date().toISOString(), items };
+  } catch(_) {}
+}
+
 async function _corsFetch(url, timeout = 10000) {
   const enc = encodeURIComponent(url);
   const attempts = [
@@ -1513,6 +1838,12 @@ async function _corsFetch(url, timeout = 10000) {
   return null;
 }
 
+const _EXIT_PATTERNS = ['יכולים לצאת', 'ניתן לצאת', 'האירוע הסתיים', 'הסתיים האירוע', 'הסתיימה ההתרעה'];
+
+function _isExitNotification(title) {
+  return _EXIT_PATTERNS.some(p => title.includes(p));
+}
+
 function _parseRedAlertResponse(text) {
   if (!text || text.trim().length < 3) return { active: false };
   try {
@@ -1520,14 +1851,18 @@ function _parseRedAlertResponse(text) {
     if (Array.isArray(d)) {
       if (!d.length) return { active: false };
       const first = d[0];
+      const title = first.title || first.desc || '';
       const areas = first.cities || first.data
         ? (first.cities || (typeof first.data === 'string' ? first.data.split(',').map(s => s.trim()) : first.data))
         : (first.areas || []);
-      if (areas.length) return { active: true, id: first.notificationId || first.id || `pub-${Date.now()}`, areas, desc: first.title || first.desc || '', category: first.cat || first.threat || 1, source: 'tzevaadom', timestamp: new Date().toISOString() };
+      if (_isExitNotification(title)) return { active: false, isExit: true, id: first.notificationId || first.id || `exit-${Date.now()}`, areas, desc: title, category: first.cat || first.threat || 0, source: 'tzevaadom', timestamp: new Date().toISOString() };
+      if (areas.length) return { active: true, id: first.notificationId || first.id || `pub-${Date.now()}`, areas, desc: title, category: first.cat || first.threat || 1, source: 'tzevaadom', timestamp: new Date().toISOString() };
     } else if (d && typeof d === 'object') {
+      const title = d.title || d.desc || '';
       if (d.data || d.cities) {
         const areas = d.cities || (typeof d.data === 'string' ? d.data.split(',').map(s => s.trim()) : (d.data || []));
-        if (areas.length) return { active: true, id: d.id || `pub-${Date.now()}`, areas, desc: d.title || '', category: d.cat || d.threat || 1, source: 'tzevaadom', timestamp: new Date().toISOString() };
+        if (_isExitNotification(title)) return { active: false, isExit: true, id: d.id || `exit-${Date.now()}`, areas, desc: title, category: d.cat || d.threat || 0, source: 'tzevaadom', timestamp: new Date().toISOString() };
+        if (areas.length) return { active: true, id: d.id || `pub-${Date.now()}`, areas, desc: title, category: d.cat || d.threat || 1, source: 'tzevaadom', timestamp: new Date().toISOString() };
       }
     }
   } catch(_) {}
@@ -1562,7 +1897,7 @@ async function standaloneRefresh() {
   if (_standaloneRunning) return;
   _standaloneRunning = true;
   try {
-    await Promise.all([fetchPublicEarthquakes(), fetchPublicWeather(), fetchPublicMarine(), fetchPublicISS(), fetchPublicRedAlert(), fetchPublicSpaceWeather()]);
+    await Promise.all([fetchPublicEarthquakes(), fetchPublicWeather(), fetchPublicMarine(), fetchPublicISS(), fetchPublicRedAlert(), fetchPublicSpaceWeather(), fetchPublicAviation()]);
     refreshComposite();
   } catch(_) {}
   _standaloneRunning = false;
