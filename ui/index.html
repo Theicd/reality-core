@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>REALITY CORE - Global Command</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cesium.com/downloads/cesiumjs/releases/1.114/Build/Cesium/Cesium.js"></script>
+<link href="https://cesium.com/downloads/cesiumjs/releases/1.114/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+<link rel="stylesheet" href="style.css?v=6">
+</head>
+<body>
+<div id="alert-flash"></div>
+<div id="quake-hud" class="hidden">
+  <div class="quake-hud-inner">
+    <div class="quake-icon">⚠</div>
+    <div class="quake-mag" id="quake-mag">0.0</div>
+    <div class="quake-scale" id="quake-scale-label">RICHTER SCALE</div>
+    <div class="quake-location" id="quake-location">---</div>
+    <div class="quake-depth" id="quake-depth">DEPTH: --- KM</div>
+    <div class="quake-bar"><div class="quake-bar-fill" id="quake-bar-fill"></div></div>
+  </div>
+</div>
+
+<div id="app">
+  <header id="topbar">
+    <div class="logo">
+      <span class="logo-icon">◉</span>
+      <div><span class="logo-text">REALITY CORE</span><br><span class="logo-sub" id="logo-subtitle">GLOBAL COMMAND CENTER</span></div>
+    </div>
+    <div class="top-center"><span id="clock"></span></div>
+    <div class="status-bar">
+      <div id="lang-switch" class="lang-switch"></div>
+      <div id="ui-zoom" class="ui-zoom-ctrl"></div>
+      <span id="conn-status" class="status-dot green"></span>
+    </div>
+  </header>
+
+  <main id="main">
+    <!-- LEFT: AI ANALYSIS + GAUGES -->
+    <aside id="left-panel">
+      <div class="lp-section lp-ai">
+        <h3 id="title-ai-analysis">AI ANALYSIS</h3>
+        <div id="ai-insight-content" class="lp-scroll">
+          <span class="ai-typing">INITIALIZING NEURAL ENGINE...</span>
+        </div>
+      </div>
+      <div class="lp-section lp-gauges">
+        <div class="gauge-row">
+          <div class="gauge-box"><div class="gauge-title" id="label-kp-index">KP INDEX</div><svg class="arc-gauge" viewBox="0 0 120 80"><path class="arc-bg" d="M10,70 A50,50 0 0,1 110,70"/><path class="arc-fill" id="arc-kp" d="M10,70 A50,50 0 0,1 110,70"/><text class="arc-val" id="val-kp" x="60" y="65">0</text></svg></div>
+          <div class="gauge-box"><div class="gauge-title" id="label-solar-wind">SOLAR WIND</div><svg class="arc-gauge" viewBox="0 0 120 80"><path class="arc-bg" d="M10,70 A50,50 0 0,1 110,70"/><path class="arc-fill arc-orange" id="arc-wind" d="M10,70 A50,50 0 0,1 110,70"/><text class="arc-val" id="val-wind" x="60" y="65">0</text></svg><div class="gauge-unit" id="unit-wind">km/s</div></div>
+        </div>
+        <div class="gauge-row">
+          <div class="gauge-box"><div class="gauge-title" id="label-seismic">SEISMIC</div><svg class="arc-gauge" viewBox="0 0 120 80"><path class="arc-bg" d="M10,70 A50,50 0 0,1 110,70"/><path class="arc-fill arc-red" id="arc-quake" d="M10,70 A50,50 0 0,1 110,70"/><text class="arc-val" id="val-quake" x="60" y="65">0</text></svg><div class="gauge-unit" id="unit-seismic">max mag</div></div>
+          <div class="gauge-box"><div class="gauge-title" id="label-waves">WAVES</div><svg class="arc-gauge" viewBox="0 0 120 80"><path class="arc-bg" d="M10,70 A50,50 0 0,1 110,70"/><path class="arc-fill arc-blue" id="arc-wave" d="M10,70 A50,50 0 0,1 110,70"/><text class="arc-val" id="val-wave" x="60" y="65">0</text></svg><div class="gauge-unit" id="unit-waves">m max</div></div>
+        </div>
+        <div class="stat-grid">
+          <div class="stat-item"><span class="stat-icon" style="color:#ffd600">✈</span><span class="stat-lbl" id="label-stat-aircraft">AIRCRAFT</span><span class="stat-num" id="stat-aircraft">0</span></div>
+          <div class="stat-item"><span class="stat-icon" style="color:#00bfa5">⛴</span><span class="stat-lbl" id="label-stat-ships">SHIPS</span><span class="stat-num" id="stat-ships">0</span><span class="stat-src" id="stat-ships-src"></span></div>
+          <div class="stat-item"><span class="stat-icon" style="color:#ff1744">⚠</span><span class="stat-lbl" id="label-stat-quakes">QUAKES</span><span class="stat-num" id="stat-quakes">0</span></div>
+          <div class="stat-item"><span class="stat-icon" style="color:#4fc3f7">🛰</span><span class="stat-lbl" id="label-stat-sats">SATS</span><span class="stat-num" id="stat-sats">0</span></div>
+          <div class="stat-item"><span class="stat-icon" style="color:#7c4dff">🛰</span><span class="stat-lbl" id="label-stat-iss">ISS</span><span class="stat-num" id="stat-iss">---</span></div>
+          <div class="stat-item"><span class="stat-icon" style="color:#00bcd4">🌊</span><span class="stat-lbl" id="label-stat-buoys">BUOYS</span><span class="stat-num" id="stat-buoys">0</span></div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- CENTER: GLOBE -->
+    <section id="globe-section">
+      <div id="cesiumContainer"></div>
+      <!-- Layer toggle bar -->
+      <div id="layer-toggles">
+        <button class="layer-btn active" data-layer="satellite" style="--lc:#4fc3f7" onclick="toggleLayer('satellite')">◈ SAT</button>
+        <button class="layer-btn active" data-layer="satOrbit" style="--lc:#4fc3f780" onclick="toggleLayer('satOrbit')">⊙ ORBITS</button>
+        <button class="layer-btn active" data-layer="alertZone" style="--lc:#ff9100" onclick="toggleLayer('alertZone')">⚑ ALERTS</button>
+        <button class="layer-btn active" data-layer="israel_alerts" style="--lc:#ff1744" onclick="toggleLayer('israel_alerts')">✹ IL RED</button>
+        <button id="map-mode-btn" class="layer-btn map-mode-btn" style="--lc:#9fb3d1" onclick="toggleMapMode()">▭ FLAT</button>
+        <button class="layer-btn active" data-layer="aviation" style="--lc:#ffd600" onclick="toggleLayer('aviation')">▲ AIR</button>
+        <button class="layer-btn active" data-layer="ships" style="--lc:#00bfa5" onclick="toggleLayer('ships')">▼ SEA</button>
+        <button class="layer-btn active" data-layer="earthquake" style="--lc:#ff1744" onclick="toggleLayer('earthquake')">★ QUAKE</button>
+        <button class="layer-btn active" data-layer="weather" style="--lc:#00e5ff" onclick="toggleLayer('weather')">● WX</button>
+        <button class="layer-btn active" data-layer="marine" style="--lc:#00bcd4" onclick="toggleLayer('marine')">≈ WAVE</button>
+        <button class="layer-btn active" data-layer="iss" style="--lc:#7c4dff" onclick="toggleLayer('iss')">◉ ISS</button>
+      </div>
+      <!-- Info popup -->
+      <div id="info-popup" class="hidden">
+        <div class="popup-close" onclick="closePopup()">&times;</div>
+        <div id="info-popup-content"></div>
+      </div>
+    </section>
+
+    <!-- RIGHT: LIVE EVENTS + MOON -->
+    <aside id="right-panel">
+      <div class="rp-section rp-events">
+        <h3 id="title-live-events">LIVE EVENTS</h3>
+        <div id="event-feed" class="rp-scroll"></div>
+      </div>
+      <div class="rp-section rp-moon">
+        <div class="gauge-title" id="label-moon">MOON</div>
+        <canvas id="moon-canvas" width="60" height="60"></canvas>
+        <div class="moon-phase" id="moon-phase">---</div>
+        <div class="moon-illum" id="moon-illum">0%</div>
+      </div>
+    </aside>
+  </main>
+
+  <!-- NEWS TICKER -->
+  <div id="news-ticker"></div>
+
+  <footer id="bottombar">
+    <div id="connector-statuses"></div>
+    <div id="ai-status"></div>
+    <div id="bottom-clock"></div>
+  </footer>
+</div>
+
+<script src="sounds.js?v=6"></script>
+<script src="app.js?v=6"></script>
+</body>
+</html>

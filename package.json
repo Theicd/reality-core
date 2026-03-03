@@ -1,0 +1,26 @@
+{
+  "name": "reality-core",
+  "version": "1.0.0",
+  "description": "Global Real-Time Control System",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "nodemon server/index.js",
+    "qa": "node qa/runner.js",
+    "test": "node qa/runner.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "ws": "^8.16.0",
+    "axios": "^1.6.7",
+    "node-cron": "^3.0.3",
+    "winston": "^3.11.0",
+    "better-sse": "^0.13.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.1",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.3"
+  }
+}
