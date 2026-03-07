@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QA — בדיקת מערכת התרעות ישראל</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0e14;color:#e0e0e0;font-family:'Segoe UI',Tahoma,sans-serif;padding:20px;min-height:100vh}
+h1{color:#00e5ff;font-size:20px;margin-bottom:16px;text-shadow:0 0 8px rgba(0,229,255,.3)}
+h2{color:#8b949e;font-size:14px;margin:16px 0 8px;border-bottom:1px solid #30363d;padding-bottom:4px}
+.card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px;margin-bottom:8px}
+.row{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px}
+.row .name{flex:1;font-weight:500}
+.row .status{font-size:12px;padding:2px 8px;border-radius:8px;font-weight:600}
+.ok{background:#1b5e20;color:#69f0ae}
+.fail{background:#b71c1c;color:#ff5252}
+.wait{background:#37474f;color:#90a4ae}
+.warn{background:#e65100;color:#ffab00}
+.time{color:#484f58;font-size:11px;min-width:60px;text-align:left}
+.detail{font-size:11px;color:#8b949e;margin-top:2px;word-break:break-all}
+.log{background:#0d1117;border:1px solid #21262d;border-radius:6px;padding:10px;font-family:'Cascadia Code','Fira Code',monospace;font-size:11px;max-height:300px;overflow-y:auto;white-space:pre-wrap;line-height:1.5;margin-top:12px}
+.log .p{color:#69f0ae}.log .f{color:#ff5252}.log .w{color:#ffab00}.log .i{color:#8b949e}
+.sum{display:flex;gap:12px;margin:16px 0;flex-wrap:wrap}
+.sum .it{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:10px 16px;text-align:center;min-width:80px}
+.sum .n{font-size:24px;font-weight:700}
+.sum .l{font-size:10px;color:#8b949e}
+button{background:#00695c;color:#e0e0e0;border:1px solid #00897b;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:13px;margin-left:8px}
+button:hover{background:#00796b}
+button.sec{background:#1a237e;border-color:#3949ab}
+.prog{height:4px;background:#21262d;border-radius:2px;overflow:hidden;margin:8px 0}
+.prog .fill{height:100%;background:linear-gradient(90deg,#00e5ff,#69f0ae);transition:width .3s;width:0}
+</style>
+</head>
+<body>
+
+<h1>🔬 QA — בדיקת מערכת התרעות ישראל</h1>
+<div>
+  <button onclick="runAll()">▶ הרץ את כל הבדיקות</button>
+  <button class="sec" onclick="testEndpoints()">🌐 בדוק endpoints בלבד</button>
+  <button class="sec" onclick="testParser()">🔍 בדוק parser בלבד</button>
+  <button class="sec" onclick="testSimulation()">🎭 סימולציה: התרעה + מקדימה + סיום</button>
+</div>
+<div class="prog"><div class="fill" id="progBar"></div></div>
+
+<div class="sum" id="summary" style="display:none">
+  <div class="it"><div class="n" id="sTotal" style="color:#00e5ff">0</div><div class="l">סה"כ</div></div>
+  <div class="it"><div class="n" id="sPass" style="color:#69f0ae">0</div><div class="l">✓ עברו</div></div>
+  <div class="it"><div class="n" id="sFail" style="color:#ff5252">0</div><div class="l">✗ נכשלו</div></div>
+  <div class="it"><div class="n" id="sTime" style="color:#42a5f5">0s</div><div class="l">זמן</div></div>
+</div>
+
+<div id="results"></div>
+<div class="log" id="log"></div>
+
+<script>
+const RESULTS = [];
+const LOG = [];
+
+function log(msg, cls = 'i') {
+  LOG.push({ msg, cls });
+  const el = document.getElementById('log');
+  el.innerHTML += `<div class="${cls}">${msg}</div>`;
+  el.scrollTop = el.scrollHeight;
+}
+
+function addResult(name, pass, detail, time) {
+  RESULTS.push({ name, pass, detail, time });
+}
+
+function renderResults() {
+  const el = document.getElementById('results');
+  let html = '';
+  for (const r of RESULTS) {
+    html += `<div class="card"><div class="row">
+      <span class="status ${r.pass ? 'ok' : r.pass === null ? 'warn' : 'fail'}">${r.pass ? '✓ PASS' : r.pass === null ? '⚠ WARN' : '✗ FAIL'}</span>
+      <span class="name">${r.name}</span>
+      <span class="time">${r.time || ''}ms</span>
+    </div>${r.detail ? `<div class="detail">${r.detail}</div>` : ''}</div>`;
+  }
+  el.innerHTML = html;
+  const pass = RESULTS.filter(r => r.pass).length;
+  const fail = RESULTS.filter(r => r.pass === false).length;
+  document.getElementById('sTotal').textContent = RESULTS.length;
+  document.getElementById('sPass').textContent = pass;
+  document.getElementById('sFail').textContent = fail;
+  document.getElementById('summary').style.display = 'flex';
+}
+
+// ═══════════════════════════════════════════════════════
+// TEST 1: Endpoint connectivity — all proxy paths
+// ═══════════════════════════════════════════════════════
+async function testEndpoints() {
+  RESULTS.length = 0; LOG.length = 0;
+  document.getElementById('log').innerHTML = '';
+  const t0 = performance.now();
+  log('═══ TEST: ENDPOINT CONNECTIVITY ═══', 'i');
+
+  const OREF = 'https://www.oref.org.il/WarningMessages/alert/alerts.json';
+  const TZEVA = 'https://api.tzevaadom.co.il/notifications';
+  const OREF_HIST = 'https://www.oref.org.il/WarningMessages/History/AlertsHistory.json';
+
+  const endpoints = [
+    // Oref via proxies
+    { name: 'Oref → allorigins', url: `https://api.allorigins.win/get?url=${encodeURIComponent(OREF)}`, parse: 'allorigins' },
+    { name: 'Oref → corsproxy.io', url: `https://corsproxy.io/?${encodeURIComponent(OREF)}`, parse: 'text' },
+    { name: 'Oref → codetabs', url: `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(OREF)}`, parse: 'text' },
+    // Tzeva Adom via proxies
+    { name: 'Tzeva Adom → allorigins', url: `https://api.allorigins.win/get?url=${encodeURIComponent(TZEVA)}`, parse: 'allorigins' },
+    { name: 'Tzeva Adom → codetabs', url: `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(TZEVA)}`, parse: 'text' },
+    // History
+    { name: 'Oref History → allorigins', url: `https://api.allorigins.win/get?url=${encodeURIComponent(OREF_HIST)}`, parse: 'allorigins' },
+    // Direct (will CORS-fail from browser, that's expected)
+    { name: 'Oref → direct (CORS expected)', url: OREF, parse: 'text', corsExpected: true },
+    { name: 'Tzeva Adom → direct', url: TZEVA, parse: 'text' },
+  ];
+
+  let done = 0;
+  for (const ep of endpoints) {
+    const et0 = performance.now();
+    try {
+      log(`→ Testing: ${ep.name}...`, 'i');
+      const r = await fetch(ep.url, { signal: AbortSignal.timeout(10000) });
+      const ms = Math.round(performance.now() - et0);
+
+      if (!r.ok) {
+        if (ep.corsExpected) {
+          addResult(ep.name, null, `HTTP ${r.status} (CORS expected — normal for browser)`, ms);
+          log(`⚠ ${ep.name}: HTTP ${r.status} (CORS expected)`, 'w');
+        } else {
+          addResult(ep.name, false, `HTTP ${r.status}`, ms);
+          log(`✗ ${ep.name}: HTTP ${r.status} (${ms}ms)`, 'f');
+        }
+      } else {
+        let text = '';
+        if (ep.parse === 'allorigins') {
+          const j = await r.json();
+          text = j?.contents || '';
+        } else {
+          text = await r.text();
+        }
+
+        const hasData = text.trim().length > 0;
+        const isJson = (() => { try { JSON.parse(text); return true; } catch { return false; } })();
+
+        if (hasData && isJson) {
+          addResult(ep.name, true, `${ms}ms | ${text.length} chars | Valid JSON`, ms);
+          log(`✓ ${ep.name}: OK (${ms}ms, ${text.length} chars, valid JSON)`, 'p');
+        } else if (hasData) {
+          addResult(ep.name, true, `${ms}ms | ${text.length} chars | NOT JSON (might be empty alerts)`, ms);
+          log(`✓ ${ep.name}: Response received (${ms}ms, ${text.length} chars)`, 'p');
+        } else {
+          addResult(ep.name, true, `${ms}ms | Empty response (= no active alerts, this is OK)`, ms);
+          log(`✓ ${ep.name}: Empty (= no alerts active) (${ms}ms)`, 'p');
+        }
+      }
+    } catch (e) {
+      const ms = Math.round(performance.now() - et0);
+      if (ep.corsExpected) {
+        addResult(ep.name, null, `CORS blocked (expected — ${e.message})`, ms);
+        log(`⚠ ${ep.name}: CORS blocked (expected) (${ms}ms)`, 'w');
+      } else {
+        addResult(ep.name, false, `${e.message} (${ms}ms)`, ms);
+        log(`✗ ${ep.name}: ${e.message} (${ms}ms)`, 'f');
+      }
+    }
+    done++;
+    document.getElementById('progBar').style.width = Math.round(done / endpoints.length * 100) + '%';
+  }
+
+  document.getElementById('sTime').textContent = ((performance.now() - t0) / 1000).toFixed(1) + 's';
+  renderResults();
+}
+
+// ═══════════════════════════════════════════════════════
+// TEST 2: Parser — validate parse logic for all formats
+// ═══════════════════════════════════════════════════════
+function testParser() {
+  RESULTS.length = 0; LOG.length = 0;
+  document.getElementById('log').innerHTML = '';
+  log('═══ TEST: ALERT PARSER ═══', 'i');
+
+  // Oref format — active alert
+  const orefActive = JSON.stringify({ id: '133456789', cat: '1', title: 'ירי רקטות וטילים', data: 'תל אביב - מרכז העיר, רמת גן, גבעתיים', desc: 'היכנסו למרחב המוגן' });
+  let r = _testParse(orefActive);
+  addResult('Parser: Oref active alert', r.active && r.areas.length === 3, `active=${r.active} areas=${r.areas?.length} desc=${r.desc}`);
+  log(`${r.active ? '✓' : '✗'} Oref active: active=${r.active} areas=${r.areas?.length}`, r.active ? 'p' : 'f');
+
+  // Oref format — array
+  const orefArr = JSON.stringify([{ id: '1', cat: '1', title: 'ירי רקטות', data: 'חיפה, קריות', desc: '' }]);
+  r = _testParse(orefArr);
+  addResult('Parser: Oref array format', r.active && r.areas.length === 2, `active=${r.active} areas=${r.areas?.length}`);
+
+  // Tzeva Adom format
+  const tzeva = JSON.stringify([{ notificationId: '5678', threat: 1, cities: ['אשדוד', 'אשקלון', 'שדרות'], title: 'צבע אדום' }]);
+  r = _testParse(tzeva);
+  addResult('Parser: Tzeva Adom format', r.active && r.areas.length === 3, `active=${r.active} areas=${JSON.stringify(r.areas)}`);
+
+  // Pre-alert (category 14)
+  const preAlert = JSON.stringify({ id: '999', cat: '14', title: 'התרעה מקדימה', data: 'כל הארץ', desc: 'שפרו מיקום' });
+  r = _testParse(preAlert);
+  addResult('Parser: Pre-alert (cat=14)', r.active && r.category === 14, `active=${r.active} category=${r.category}`);
+  log(`${r.category === 14 ? '✓' : '✗'} Pre-alert: category=${r.category}`, r.category === 14 ? 'p' : 'f');
+
+  // Exit notification
+  const exitNotif = JSON.stringify([{ id: '100', cat: '1', title: 'ניתן לצאת ממרחבים מוגנים', data: 'תל אביב, רמת גן', desc: 'האירוע הסתיים' }]);
+  r = _testParse(exitNotif);
+  addResult('Parser: Exit notification', r.isExit === true, `isExit=${r.isExit} desc=${r.desc}`);
+  log(`${r.isExit ? '✓' : '✗'} Exit: isExit=${r.isExit}`, r.isExit ? 'p' : 'f');
+
+  // Exit pattern 2
+  const exitNotif2 = JSON.stringify({ id: '101', cat: '0', title: 'האירוע הסתיים - ניתן לחזור לשגרה', data: 'חיפה' });
+  r = _testParse(exitNotif2);
+  addResult('Parser: Exit pattern "האירוע הסתיים"', r.isExit === true, `isExit=${r.isExit}`);
+
+  // Empty response
+  r = _testParse('');
+  addResult('Parser: Empty string → no alert', !r.active, `active=${r.active}`);
+
+  // Empty array
+  r = _testParse('[]');
+  addResult('Parser: Empty array → no alert', !r.active, `active=${r.active}`);
+
+  // Invalid JSON
+  r = _testParse('not json at all');
+  addResult('Parser: Invalid JSON → no crash', !r.active, `active=${r.active}`);
+
+  // Multiple areas with commas
+  const multi = JSON.stringify({ id: '200', cat: '1', data: 'תל אביב - מרכז, תל אביב - דרום, רמת גן, גבעתיים, בני ברק', title: 'צבע אדום' });
+  r = _testParse(multi);
+  addResult('Parser: Multiple comma-separated areas', r.active && r.areas.length >= 4, `areas=${r.areas?.length}: ${r.areas?.join(', ')}`);
+
+  renderResults();
+  document.getElementById('progBar').style.width = '100%';
+}
+
+function _testParse(text) {
+  // Inline parser matching alerts-engine.js logic
+  const EXIT_PATTERNS = ['יכולים לצאת', 'ניתן לצאת', 'האירוע הסתיים', 'הסתיים האירוע', 'הסתיימה ההתרעה', 'ניתן לחזור לשגרה'];
+  function isExit(title) { return title && EXIT_PATTERNS.some(p => title.includes(p)); }
+
+  if (!text || text.trim().length < 3) return { active: false };
+  try {
+    const d = JSON.parse(text);
+    if (Array.isArray(d)) {
+      if (!d.length) return { active: false };
+      const first = d[0];
+      const title = first.title || first.desc || '';
+      const areas = first.cities || (typeof first.data === 'string' ? first.data.split(',').map(s => s.trim()).filter(Boolean) : first.data) || first.areas || [];
+      const cat = first.cat || first.threat || 0;
+      if (isExit(title)) return { active: false, isExit: true, id: first.notificationId || first.id, areas, desc: title, category: Number(cat) };
+      if (areas.length) return { active: true, id: first.notificationId || first.id, areas, desc: title, category: Number(cat) };
+    } else if (d && typeof d === 'object') {
+      const title = d.title || d.desc || '';
+      const areas = d.cities || (typeof d.data === 'string' ? d.data.split(',').map(s => s.trim()).filter(Boolean) : d.data) || d.areas || [];
+      const cat = d.cat || d.threat || 0;
+      if (isExit(title)) return { active: false, isExit: true, id: d.id, areas, desc: title, category: Number(cat) };
+      if (areas.length) return { active: true, id: d.id, areas, desc: title, category: Number(cat) };
+    }
+  } catch {}
+  return { active: false };
+}
+
+// ═══════════════════════════════════════════════════════
+// TEST 3: Full simulation — pre-alert → alert → exit
+// ═══════════════════════════════════════════════════════
+async function testSimulation() {
+  RESULTS.length = 0; LOG.length = 0;
+  document.getElementById('log').innerHTML = '';
+  log('═══ TEST: FULL ALERT SIMULATION ═══', 'i');
+  log('שלב 1/3: התרעה מקדימה (שיגור מאיראן)', 'w');
+
+  // Step 1: Pre-alert
+  const preData = JSON.stringify({ id: 'SIM-PRE', cat: '14', title: 'התרעה מקדימה - שפרו מיקום', data: 'כל הארץ', desc: 'זוהה שיגור — היערכו לכניסה למרחב המוגן' });
+  let r = _testParse(preData);
+  addResult('SIM Step 1: Pre-alert detected', r.active && r.category === 14, `category=${r.category} active=${r.active}`);
+  log(`  → active=${r.active} category=${r.category} (14 = מקדימה)`, r.category === 14 ? 'p' : 'f');
+  log(`  → areas: ${r.areas?.join(', ')}`, 'i');
+  renderResults();
+
+  await _sleep(1500);
+  log('\nשלב 2/3: צבע אדום — רקטות (cat=1)', 'f');
+
+  // Step 2: Active alert
+  const alertData = JSON.stringify([{ id: 'SIM-ALERT', cat: '1', title: 'ירי רקטות וטילים', data: 'תל אביב - מרכז העיר, תל אביב - יפו, רמת גן, גבעתיים, בני ברק, חולון, בת ים', desc: 'היכנסו מיד למרחב המוגן' }]);
+  r = _testParse(alertData);
+  addResult('SIM Step 2: Active alert (rockets)', r.active && r.areas.length >= 5, `active=${r.active} areas=${r.areas?.length}`);
+  log(`  → active=${r.active} areas=${r.areas?.length}`, r.active ? 'p' : 'f');
+  log(`  → אזורים: ${r.areas?.join(', ')}`, 'i');
+  log(`  → shelter countdown would start: 90s`, 'i');
+  renderResults();
+
+  await _sleep(1500);
+  log('\nשלב 3/3: סיום אירוע — ניתן לצאת', 'p');
+
+  // Step 3: Exit notification
+  const exitData = JSON.stringify([{ id: 'SIM-EXIT', cat: '1', title: 'ניתן לצאת ממרחבים מוגנים - האירוע הסתיים', data: 'תל אביב, רמת גן, גבעתיים, בני ברק, חולון, בת ים', desc: '' }]);
+  r = _testParse(exitData);
+  addResult('SIM Step 3: Exit notification', r.isExit === true, `isExit=${r.isExit} active=${r.active}`);
+  log(`  → isExit=${r.isExit} active=${r.active}`, r.isExit ? 'p' : 'f');
+  log(`  → shelter countdown would STOP`, 'i');
+  renderResults();
+
+  await _sleep(500);
+  log('\n═══ SIMULATION COMPLETE ═══', 'i');
+  log('Flow: התרעה מקדימה (cat=14) → צבע אדום (cat=1) → סיום אירוע (isExit)', 'p');
+  document.getElementById('progBar').style.width = '100%';
+}
+
+function _sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ═══════════════════════════════════════════════════════
+// RUN ALL
+// ═══════════════════════════════════════════════════════
+async function runAll() {
+  RESULTS.length = 0; LOG.length = 0;
+  document.getElementById('log').innerHTML = '';
+  document.getElementById('results').innerHTML = '';
+  document.getElementById('progBar').style.width = '0%';
+  const t0 = performance.now();
+
+  log('╔══════════════════════════════════════════╗', 'i');
+  log('║  QA ALERTS — FULL TEST SUITE             ║', 'i');
+  log('╚══════════════════════════════════════════╝', 'i');
+
+  // Parser tests
+  log('\n═══ PHASE 1: PARSER TESTS ═══', 'i');
+  testParser();
+  const parserResults = [...RESULTS];
+
+  await _sleep(300);
+
+  // Endpoint tests
+  log('\n═══ PHASE 2: ENDPOINT CONNECTIVITY ═══', 'i');
+  RESULTS.length = 0;
+  await testEndpoints();
+  const endpointResults = [...RESULTS];
+
+  await _sleep(300);
+
+  // Simulation
+  log('\n═══ PHASE 3: FLOW SIMULATION ═══', 'i');
+  RESULTS.length = 0;
+  await testSimulation();
+  const simResults = [...RESULTS];
+
+  // Combine all
+  RESULTS.length = 0;
+  RESULTS.push(...parserResults, ...endpointResults, ...simResults);
+
+  const pass = RESULTS.filter(r => r.pass).length;
+  const fail = RESULTS.filter(r => r.pass === false).length;
+  const total = RESULTS.length;
+  const dur = ((performance.now() - t0) / 1000).toFixed(1);
+
+  log(`\n═══ FINAL: ${pass}/${total} passed (${fail} failed) — ${dur}s ═══`, pass === total ? 'p' : 'f');
+  document.getElementById('sTime').textContent = dur + 's';
+  renderResults();
+  document.getElementById('progBar').style.width = '100%';
+}
+</script>
+</body>
+</html>
