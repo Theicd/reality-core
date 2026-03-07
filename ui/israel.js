@@ -2464,7 +2464,7 @@ async function prime() {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
-  console.log('%c███ REALITY-CORE v37 — Starting... ███', 'color:#00e5ff;font-size:16px;font-weight:bold;text-shadow:0 0 8px #00e5ff');
+  console.log('%c███ REALITY-CORE v38 — Starting... ███', 'color:#00e5ff;font-size:16px;font-weight:bold;text-shadow:0 0 8px #00e5ff');
   _log('Boot', `UA: ${navigator.userAgent.substring(0,80)}`);
   _log('Boot', `URL: ${location.href}`);
   if (typeof getApiStats === 'function') {

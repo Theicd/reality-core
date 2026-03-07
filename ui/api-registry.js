@@ -108,10 +108,10 @@ const API_REGISTRY = {
   'nws': {
     id: 13, name: 'National Weather Service', category: 'weather', tier: 'free',
     baseUrl: 'https://api.weather.gov',
-    testEndpoint: 'https://api.weather.gov/alerts/active?limit=5',
+    testEndpoint: 'https://api.weather.gov/alerts/active?status=actual&limit=5',
     expectedFields: ['features'], responseType: 'json',
-    rateLimit: 'generous', cors: true, active: true,
-    headers: { 'User-Agent': 'RealityCore/1.0' },
+    rateLimit: 'generous', cors: true, active: true, refreshInterval: 300,
+    headers: { 'User-Agent': 'RealityCore/1.0 (github.com/theicd/reality-core)' },
     description: 'NWS — התרעות מזג אוויר ארה״ב, חינם לחלוטין'
   },
   'world-weather-online': {
@@ -189,8 +189,8 @@ const API_REGISTRY = {
     baseUrl: 'https://www.ndbc.noaa.gov/data',
     testEndpoint: 'https://www.ndbc.noaa.gov/data/latest_obs/latest_obs.txt',
     expectedFields: [], responseType: 'text',
-    rateLimit: 'generous', cors: false, active: true,
-    description: 'מצופי ים — גלים, רוח, טמפרטורה'
+    rateLimit: 'generous', cors: false, active: false,
+    description: 'מצופי ים — גלים, רוח, טמפרטורה (CORS חסום)'
   },
   'copernicus-marine': {
     id: 24, name: 'Copernicus Marine', category: 'ocean', tier: 'free',
@@ -383,8 +383,8 @@ const API_REGISTRY = {
     baseUrl: 'https://sdo.gsfc.nasa.gov',
     testEndpoint: 'https://sdo.gsfc.nasa.gov/assets/img/latest/latest_256_0193.jpg',
     expectedFields: [], responseType: 'image',
-    rateLimit: 'generous', cors: true, active: true,
-    description: 'תמונות שמש בזמן אמת'
+    rateLimit: 'generous', cors: false, active: false,
+    description: 'תמונות שמש בזמן אמת (CORS חסום מ-browser)'
   },
   'solar-monitor': {
     id: 49, name: 'SolarMonitor', category: 'space', tier: 'free',
@@ -405,8 +405,8 @@ const API_REGISTRY = {
     baseUrl: 'https://api.helioviewer.org',
     testEndpoint: 'https://api.helioviewer.org/v2/getClosestImage/?date=2024-01-01T00:00:00Z&sourceId=14',
     expectedFields: ['id'], responseType: 'json',
-    rateLimit: 'generous', cors: true, active: true,
-    description: 'תמונות שמש — SDO, SOHO, STEREO'
+    rateLimit: 'generous', cors: false, active: false,
+    description: 'תמונות שמש — CORS חסום מ-browser'
   },
   'solar-wind': {
     id: 52, name: 'NOAA Solar Wind', category: 'space', tier: 'free',
@@ -437,15 +437,15 @@ const API_REGISTRY = {
     baseUrl: 'https://www.sidc.be/silso',
     testEndpoint: 'https://www.sidc.be/silso/INFO/sndtotcsv.php',
     expectedFields: [], responseType: 'text',
-    rateLimit: 'generous', cors: false, active: true,
-    description: 'מספר כתמי שמש — SILSO'
+    rateLimit: 'generous', cors: false, active: false,
+    description: 'מספר כתמי שמש — CORS חסום'
   },
   'solar-flare': {
     id: 56, name: 'NASA Solar Flare', category: 'space', tier: 'free',
     baseUrl: 'https://api.nasa.gov/DONKI/FLR',
-    testEndpoint: 'https://api.nasa.gov/DONKI/FLR?startDate=2024-01-01&api_key=DEMO_KEY',
+    testEndpoint: 'https://api.nasa.gov/DONKI/FLR?startDate=2025-01-01&api_key=DEMO_KEY',
     expectedFields: [], responseType: 'json',
-    rateLimit: '1000/hr', cors: true, active: true,
+    rateLimit: '1000/hr', cors: true, active: true, refreshInterval: 3600,
     description: 'התלקחויות סולאריות — DONKI'
   },
   'radiation-belt': {
@@ -510,8 +510,8 @@ const API_REGISTRY = {
     baseUrl: 'https://db.satnogs.org/api',
     testEndpoint: 'https://db.satnogs.org/api/satellites/?format=json&status=alive',
     expectedFields: [], responseType: 'json',
-    rateLimit: 'generous', cors: true, active: true,
-    description: 'רשת לוויינים פתוחה — SatNOGS'
+    rateLimit: 'generous', cors: false, active: false,
+    description: 'רשת לוויינים פתוחה — CORS חסום'
   },
   'heavens-above': {
     id: 65, name: 'Heavens Above', category: 'satellites', tier: 'free',
@@ -593,8 +593,8 @@ const API_REGISTRY = {
     baseUrl: 'https://db.satnogs.org/api',
     testEndpoint: 'https://db.satnogs.org/api/satellites/?format=json',
     expectedFields: [], responseType: 'json',
-    rateLimit: 'generous', cors: true, active: true,
-    description: 'מאגר CubeSat — SatNOGS'
+    rateLimit: 'generous', cors: false, active: false,
+    description: 'מאגר CubeSat — CORS חסום'
   },
 
   // ═══════════════════════════════════════════════════════
@@ -683,10 +683,10 @@ const API_REGISTRY = {
   'faa-airport': {
     id: 87, name: 'FAA Airport Status', category: 'aviation', tier: 'free',
     baseUrl: 'https://soa.smext.faa.gov/asws/api/airport/status',
-    testEndpoint: 'https://soa.smext.faa.gov/asws/api/airport/status/JFK',
+    testEndpoint: null,
     expectedFields: ['Name'], responseType: 'json',
-    rateLimit: 'generous', cors: true, active: true,
-    description: 'סטטוס שדות תעופה ארה״ב'
+    rateLimit: 'generous', cors: false, active: false,
+    description: 'סטטוס שדות תעופה ארה״ב — DNS נכשל'
   },
   'global-aviation': {
     id: 88, name: 'Global Aviation API', category: 'aviation', tier: 'key-paid',
@@ -838,8 +838,8 @@ const API_REGISTRY = {
     baseUrl: 'https://api.reliefweb.int/v1',
     testEndpoint: 'https://api.reliefweb.int/v1/disasters?appname=RealityCore&limit=5',
     expectedFields: ['data'], responseType: 'json',
-    rateLimit: 'generous', cors: true, active: true,
-    description: 'אסונות הומניטריים — UN OCHA'
+    rateLimit: 'generous', cors: true, active: false,
+    description: 'אסונות הומניטריים — HTTP 403'
   },
   'spc-storms': {
     id: 108, name: 'Storm Prediction Center', category: 'disaster', tier: 'free',
@@ -854,8 +854,8 @@ const API_REGISTRY = {
     baseUrl: 'https://www.nhc.noaa.gov',
     testEndpoint: 'https://www.nhc.noaa.gov/CurrentSummaries.json',
     expectedFields: [], responseType: 'json',
-    rateLimit: 'generous', cors: true, active: true,
-    description: 'הוריקנים וסופות טרופיות'
+    rateLimit: 'generous', cors: false, active: false,
+    description: 'הוריקנים וסופות טרופיות — CORS חסום'
   },
   'hurricane-tracker': {
     id: 110, name: 'IBTrACS (Hurricane Archive)', category: 'disaster', tier: 'free',
@@ -873,8 +873,8 @@ const API_REGISTRY = {
     baseUrl: 'https://remap.jrc.ec.europa.eu',
     testEndpoint: 'https://remap.jrc.ec.europa.eu/api/measurements/latest',
     expectedFields: [], responseType: 'json',
-    rateLimit: 'generous', cors: true, active: true,
-    description: 'רשת ניטור קרינה אירופית'
+    rateLimit: 'generous', cors: false, active: false,
+    description: 'רשת ניטור קרינה אירופית — CORS חסום'
   },
   'radnet-epa': {
     id: 112, name: 'RadNet EPA', category: 'radiation', tier: 'free',
@@ -894,10 +894,10 @@ const API_REGISTRY = {
   'openradiation': {
     id: 114, name: 'OpenRadiation', category: 'radiation', tier: 'free',
     baseUrl: 'https://request.openradiation.net/1',
-    testEndpoint: 'https://request.openradiation.net/1/measurements?period=24h',
+    testEndpoint: null,
     expectedFields: ['data'], responseType: 'json',
-    rateLimit: 'generous', cors: true, active: true,
-    description: 'מדידות קרינה קהילתיות'
+    rateLimit: 'generous', cors: true, active: false,
+    description: 'מדידות קרינה — HTTP 404 (endpoint השתנה)'
   },
   'iaea-radiation': {
     id: 115, name: 'IAEA IRMIS', category: 'radiation', tier: 'free',
@@ -931,8 +931,8 @@ const API_REGISTRY = {
     baseUrl: 'https://feeds.meteoalarm.org/api/v1',
     testEndpoint: 'https://feeds.meteoalarm.org/api/v1/warnings/feeds-israel',
     expectedFields: [], responseType: 'json',
-    rateLimit: '-', cors: true, active: true,
-    description: 'התרעות מטאורולוגיות אירופה'
+    rateLimit: '-', cors: false, active: false,
+    description: 'התרעות מטאורולוגיות אירופה — CORS חסום'
   },
   'gdacs-alerts': {
     id: 119, name: 'GDACS Alerts', category: 'alerts', tier: 'free',
