@@ -9,10 +9,21 @@
 <link rel="stylesheet" href="../css/mobile.css">
 <style>
 .custom-marker{background:none;border:none;}
-.alert-active { background: linear-gradient(135deg, rgba(255,23,68,.12), rgba(255,23,68,.04)) !important; }
+.alert-active{background:linear-gradient(135deg,rgba(255,23,68,.12),rgba(255,23,68,.04))!important}
+.bottom-nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:#0d1117;border-top:1px solid #30363d;z-index:9999;padding:4px 0 env(safe-area-inset-bottom,4px)}
+.bottom-nav a{flex:1;text-align:center;padding:8px 0;color:#8b949e;text-decoration:none;font-size:11px;display:flex;flex-direction:column;align-items:center;gap:2px;transition:color .2s}
+.bottom-nav a .ico{font-size:20px}
+.bottom-nav a.active{color:#00e5ff}
+.bottom-nav a.alert-active{color:#ff1744;animation:blink 1s infinite}
+.wl-box{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:8px;margin-top:8px}
+.wl-input{display:flex;gap:4px;margin-bottom:6px}
+.wl-input input{flex:1;background:#0d1117;border:1px solid #30363d;color:#e0e0e0;padding:4px 8px;border-radius:4px;font-size:12px}
+.wl-input button{background:#00695c;color:#e0e0e0;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.5}}
+@media(min-width:769px){.bottom-nav{display:none}}
 </style>
 </head>
-<body>
+<body style="padding-bottom:60px">
 
 <div class="gm-header">
   <h1>🚨 מערכת התרעות ישראל</h1>
@@ -28,30 +39,46 @@
 </div>
 
 <div class="gm-layout fullscreen">
-  <!-- Alert Panel -->
   <div class="gm-alert-panel" id="alertPanel">
     <div style="text-align:center;padding:12px;color:var(--muted)">ממתין לבדיקת מקורות...</div>
   </div>
 
-  <!-- Map of Israel -->
   <div class="gm-map">
     <div id="map"></div>
   </div>
 
-  <!-- Bottom — Event Log -->
+  <!-- Watchlist — area selector -->
+  <div style="padding:8px 12px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+      <span style="font-size:13px;font-weight:600;color:var(--text)">📍 אזורי מעקב</span>
+      <button id="wlToggle" onclick="ALERTS.toggleWatch()" style="background:none;border:1px solid #30363d;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:11px;color:#69f0ae">ON</button>
+    </div>
+    <div class="wl-box">
+      <div class="wl-input">
+        <input type="text" id="areaInput" list="areaSuggestions" placeholder="הקלד שם אזור..." oninput="ALERTS.populateSuggestions(this.value)">
+        <datalist id="areaSuggestions"></datalist>
+        <button onclick="ALERTS.addWatch(document.getElementById('areaInput').value);document.getElementById('areaInput').value=''">+ הוסף</button>
+      </div>
+      <div id="watchlistBox"></div>
+    </div>
+  </div>
+
   <div class="gm-bottom" style="max-height:200px">
     <div style="font-size:12px;color:var(--muted);margin-bottom:4px;display:flex;justify-content:space-between;align-items:center">
       <span>📋 יומן אירועים</span>
       <span id="updateTime" style="font-size:10px">—</span>
     </div>
     <div class="ticker" id="alertLog"></div>
-    <div class="mob-tabs">
-      <button class="mob-tab active" onclick="mobTab()"><span class="icon">🗺</span>מפה</button>
-      <button class="mob-tab" onclick="ALERTS.fetchAlerts()"><span class="icon">🔄</span>רענן</button>
-      <button class="mob-tab" onclick="QA_ENGINE.runAll()"><span class="icon">🔬</span>QA</button>
-    </div>
   </div>
 </div>
+
+<!-- ═══ Mobile Bottom Navigation ═══ -->
+<nav class="bottom-nav">
+  <a href="israel-alerts.html" class="active"><span class="ico">�</span>התרעות</a>
+  <a href="weather-world.html"><span class="ico">☁</span>מזג אוויר</a>
+  <a href="transport-world.html"><span class="ico">✈</span>תחבורה</a>
+  <a href="qa-alerts-test.html"><span class="ico">🔬</span>QA</a>
+</nav>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="../../../api-registry.js"></script>
@@ -62,33 +89,33 @@
 <script src="../js/alerts-engine.js"></script>
 <script src="../js/qa-engine.js"></script>
 <script>
-function mobTab() {}
-
 (async () => {
   initMap('map', { center: [31.5, 34.8], zoom: 8 });
   ALERTS.init();
+  ALERTS.renderWatchlistUI();
 
-  document.getElementById('statusText').textContent = 'בודק מקורות...';
+  document.getElementById('statusText').textContent = 'טוען מטאדטה + בודק מקורות...';
+  await ALERTS.loadAreaMeta();
   await ALERTS.fetchAlerts();
   await ALERTS.fetchGlobalAlerts();
 
   const count = ALERTS.current.length;
   document.getElementById('statusText').textContent = count > 0
     ? `⚠ ${count} התרעות פעילות`
-    : '✅ אין התרעות';
+    : `✅ אין התרעות | ${ALERTS._allKnownAreas.length} אזורים נטענו`;
   document.getElementById('statusDot').className = count > 0 ? 'dot off pulse' : 'dot on';
   document.getElementById('updateTime').textContent = `עדכון: ${new Date().toLocaleTimeString('he-IL')}`;
 
-  // Auto refresh — every 5 seconds for alerts
   setInterval(async () => {
     await ALERTS.fetchAlerts();
     const n = ALERTS.current.length;
     document.getElementById('statusText').textContent = n > 0 ? `⚠ ${n} התרעות פעילות` : '✅ אין התרעות';
     document.getElementById('statusDot').className = n > 0 ? 'dot off pulse' : 'dot on';
     document.getElementById('updateTime').textContent = `עדכון: ${new Date().toLocaleTimeString('he-IL')}`;
+    // Update bottom nav alert indicator
+    document.querySelector('.bottom-nav a[href="israel-alerts.html"]')?.classList.toggle('alert-active', n > 0);
   }, 5000);
 
-  // GDACS global alerts — every 5 minutes
   setInterval(() => ALERTS.fetchGlobalAlerts(), 300000);
 })();
 </script>

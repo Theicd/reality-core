@@ -38,6 +38,7 @@ const ICONS = {
   fire: () => _badge('🔥', '#bf360c40', '#ff3d00', 22, 'blink .7s infinite'),
 
   aircraft: (hdg = 0) => `<div style="font-size:18px;transform:rotate(${hdg}deg);filter:drop-shadow(0 0 4px #ffd600);line-height:1">✈️</div>`,
+  aircraft_mil: (hdg = 0) => `<div style="font-size:20px;transform:rotate(${hdg}deg);filter:drop-shadow(0 0 6px #ff1744);line-height:1;color:#ff1744">✈️</div>`,
 
   ship: (type) => {
     const isT = typeof type === 'number';

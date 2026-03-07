@@ -96,7 +96,12 @@ const WX = {
     this.counts.earthquakes = count;
   },
 
-  // ═══ Disasters — NASA EONET + GDACS ═══
+  // ═══ Disasters — NASA EONET + GDACS (72h filter) ═══
+  _within72h(dateStr) {
+    if (!dateStr) return false;
+    try { return (Date.now() - new Date(dateStr).getTime()) < 72 * 3600000; } catch { return false; }
+  },
+
   async fetchDisasters() {
     clearLayer('disasters');
     let count = 0;
@@ -107,10 +112,11 @@ const WX = {
       for (const ev of eonet.events) {
         const geo = ev.geometry?.[ev.geometry.length - 1];
         if (!geo?.coordinates) continue;
+        if (!this._within72h(geo.date)) continue;
         const [lon, lat] = geo.coordinates;
         if (!isFinite(lat) || !isFinite(lon)) continue;
         const cat = ev.categories?.[0]?.title?.toLowerCase() || '';
-        const iconType = cat.includes('fire') ? 'fire' : cat.includes('storm') ? 'disaster' : 'disaster';
+        const iconType = cat.includes('fire') ? 'fire' : 'disaster';
         addIconMarker('disasters', lat, lon, getMarkerIcon(iconType, cat.includes('fire') ? 'wildfire' : 'storm'), {
           popup: `<b>${ev.title}</b><br>${ev.categories?.[0]?.title || ''}<br>${geo.date ? new Date(geo.date).toLocaleDateString('he-IL') : ''}`
         });
@@ -124,6 +130,7 @@ const WX = {
         const [lon, lat] = f.geometry?.coordinates || [];
         const p = f.properties || {};
         if (!isFinite(lat) || !isFinite(lon)) continue;
+        if (p.fromdate && !this._within72h(p.fromdate)) continue;
         addIconMarker('disasters', lat, lon, getMarkerIcon('disaster', p.eventtype || ''), {
           popup: `<b>${p.eventtype} ${p.alertlevel || ''}</b><br>${p.country || ''}<br>${p.fromdate || ''}`
         });

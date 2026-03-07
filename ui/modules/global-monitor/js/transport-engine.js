@@ -21,45 +21,76 @@ const TR = {
     this.updateUI();
   },
 
-  // ═══ Aircraft — airplanes.live (primary) + OpenSky (fallback) ═══
+  // ═══ Military hex ranges (same as israel.js) ═══
+  _MIL_HEX: [['ae','af','צבא ארה"ב'],['43c','43c','UK Military'],['3b','3b','French Military'],['3e','3e','German Military'],['150','15f','Russian Military'],['4b8','4bf','Turkish Military'],['730','737','Iranian Military'],['778','77f','Syrian Military'],['e4','e4','NATO']],
+
+  _classifyAircraft(hex, callsign, country, category) {
+    const h = (hex || '').toLowerCase();
+    for (const [lo, hi, label] of this._MIL_HEX) {
+      if (h >= lo && h <= hi + 'ffff') return { mil: true, label };
+    }
+    const cs = (callsign || '').trim().toUpperCase();
+    if (!cs && country && country !== 'Israel') return { mil: true, label: `${country} (ללא callsign)` };
+    if (+category === 14) return { mil: true, label: `UAV ${country || ''}` };
+    return { mil: false, label: '' };
+  },
+
+  // ═══ Aircraft — GLOBAL coverage via airplanes.live ═══
   async fetchAircraft() {
     clearLayer('aircraft');
     let count = 0;
-    // airplanes.live — CORS *, no rate limit issues
-    const data = await apiLoad('adsb-api', {
-      url: 'https://api.airplanes.live/v2/point/32.08/34.78/250', ttl: 15
-    });
-    if (data?.ac) {
-      for (const a of data.ac) {
-        const lat = +a.lat, lon = +a.lon;
-        if (!isFinite(lat) || !isFinite(lon)) continue;
-        const alt = a.alt_baro === 'ground' ? 0 : (+a.alt_baro || 0);
-        const hdg = +a.track || 0;
-        const call = (a.flight || a.hex || '').trim();
-        const m = addIconMarker('aircraft', lat, lon, getMarkerIcon('aircraft', hdg), {
-          size: 20,
-          popup: `<b>✈ ${call}</b><br>Alt: ${alt}ft<br>Speed: ${a.gs || '?'}kts<br>Hdg: ${hdg}°<br>Squawk: ${a.squawk || '—'}`
+    // Global scan — multiple points for worldwide coverage
+    const points = [
+      [32.08, 34.78, 250],  // Israel/Middle East
+      [51.47, -0.46, 250],  // London/Europe
+      [40.64, -73.78, 250], // New York
+      [35.55, 139.78, 250], // Tokyo
+      [1.36, 103.99, 250],  // Singapore
+      [25.25, 55.36, 250],  // Dubai
+    ];
+    for (const [lat, lon, radius] of points) {
+      try {
+        const data = await apiLoad(`adsb-${lat.toFixed(0)}-${lon.toFixed(0)}`, {
+          url: `https://api.airplanes.live/v2/point/${lat.toFixed(2)}/${lon.toFixed(2)}/${radius}`, ttl: 15
         });
-        m.on('click', () => this.selectObject('aircraft', { call, lat, lon, alt, speed: a.gs, hdg, squawk: a.squawk, type: a.t }));
-        count++;
-      }
-    }
-    // OpenSky fallback if adsb-api returned nothing
-    if (count === 0) {
-      const os = await apiLoad('opensky', {
-        url: 'https://opensky-network.org/api/states/all?lamin=25&lamax=45&lomin=25&lomax=45', ttl: 60
-      });
-      if (os?.states) {
-        for (const s of os.states) {
-          const lon = +s[5], lat = +s[6], alt = +(s[7] || 0) * 3.281;
-          if (!isFinite(lat) || !isFinite(lon)) continue;
-          const call = (s[1] || s[0] || '').trim();
-          addIconMarker('aircraft', lat, lon, getMarkerIcon('aircraft', s[10] || 0), {
-            size: 20, popup: `<b>✈ ${call}</b><br>Alt: ${Math.round(alt)}ft<br>Country: ${s[2] || ''}`
-          });
+        if (!data?.ac) continue;
+        for (const a of data.ac) {
+          const aLat = +a.lat, aLon = +a.lon;
+          if (!isFinite(aLat) || !isFinite(aLon)) continue;
+          const alt = a.alt_baro === 'ground' ? 0 : (+a.alt_baro || 0);
+          const hdg = +a.track || 0;
+          const call = (a.flight || '').trim();
+          const hex = a.hex || '';
+          const cls = this._classifyAircraft(hex, call, a.r, a.t);
+          const isMil = cls.mil || (a.dbFlags & 1) === 1;
+          const milLabel = cls.label || ((a.dbFlags & 1) === 1 ? `MIL ${a.r||''}` : '');
+          const col = isMil ? '#ff1744' : '#ffd600';
+          const icon = getMarkerIcon(isMil ? 'aircraft_mil' : 'aircraft', hdg);
+          const photoId = `ph_${hex}_${Date.now()}`;
+          const popupHtml = `<div id="${photoId}" style="max-width:200px"></div>`
+            + `<b style="color:${col}">${isMil ? '⚠ ' : '✈ '}${call || hex}</b>`
+            + (isMil ? `<br><span style="color:#ff1744;font-weight:700">${milLabel}</span>` : '')
+            + `<br>ICAO: ${hex} | ${a.r || ''}`
+            + `<br>גובה: ${alt}ft | מהירות: ${a.gs || '?'}kts`
+            + `<br>כיוון: ${hdg}° | Squawk: ${a.squawk || '—'}`
+            + (a.t ? `<br>סוג: ${a.t}` : '');
+          const m = addIconMarker('aircraft', aLat, aLon, icon, { size: isMil ? 24 : 20, popup: popupHtml });
+          // Load photo from planespotters on popup open
+          if (hex) {
+            m.on('popupopen', () => {
+              const el = document.getElementById(photoId);
+              if (!el || el.dataset.loaded) return;
+              el.dataset.loaded = '1';
+              fetch(`https://api.planespotters.net/pub/photos/hex/${hex}`, { signal: AbortSignal.timeout(5000) })
+                .then(r => r.json()).then(j => {
+                  const src = j?.photos?.[0]?.thumbnail_large?.src || j?.photos?.[0]?.thumbnail?.src;
+                  if (src) el.innerHTML = `<img src="${src}" style="width:100%;border-radius:4px;margin-bottom:4px" alt="aircraft">`;
+                }).catch(() => {});
+            });
+          }
           count++;
         }
-      }
+      } catch {}
     }
     this.counts.aircraft = count;
   },

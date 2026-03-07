@@ -7,9 +7,16 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="../css/global-style.css">
 <link rel="stylesheet" href="../css/mobile.css">
-<style>.custom-marker{background:none;border:none;}</style>
+<style>
+.custom-marker{background:none;border:none;}
+.bottom-nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:#0d1117;border-top:1px solid #30363d;z-index:9999;padding:4px 0 env(safe-area-inset-bottom,4px)}
+.bottom-nav a{flex:1;text-align:center;padding:8px 0;color:#8b949e;text-decoration:none;font-size:11px;display:flex;flex-direction:column;align-items:center;gap:2px}
+.bottom-nav a .ico{font-size:20px}
+.bottom-nav a.active{color:#00e5ff}
+@media(min-width:769px){.bottom-nav{display:none}}
+</style>
 </head>
-<body>
+<body style="padding-bottom:60px">
 
 <div class="gm-header">
   <h1>✈ ניטור כלי תחבורה ועצמים נעים</h1>
@@ -74,12 +81,6 @@
   <div class="gm-bottom">
     <div style="font-size:11px;color:var(--muted);margin-bottom:4px">📡 עצמים נעים — עדכון כל 15–60 שניות</div>
     <div class="ticker" id="eventTicker"></div>
-    <div class="mob-tabs">
-      <button class="mob-tab active" onclick="mobTab('map')"><span class="icon">🗺</span>מפה</button>
-      <button class="mob-tab" onclick="toggleMobPanel('left')"><span class="icon">📋</span>שכבות</button>
-      <button class="mob-tab" onclick="toggleMobPanel('right')"><span class="icon">📊</span>מידע</button>
-      <button class="mob-tab" onclick="QA_ENGINE.runAll()"><span class="icon">🔬</span>QA</button>
-    </div>
   </div>
 </div>
 
@@ -123,5 +124,11 @@ function mobTab(t) {
   setInterval(() => TR.fetchSatellites(), 3600000); // 1h — open-notify
 })();
 </script>
+<nav class="bottom-nav">
+  <a href="israel-alerts.html"><span class="ico">🚨</span>התרעות</a>
+  <a href="weather-world.html"><span class="ico">☁</span>מזג אוויר</a>
+  <a href="transport-world.html" class="active"><span class="ico">✈</span>תחבורה</a>
+  <a href="qa-alerts-test.html"><span class="ico">🔬</span>QA</a>
+</nav>
 </body>
 </html>
