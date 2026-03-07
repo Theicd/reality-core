@@ -101,8 +101,17 @@ function mobTab(t) {
 }
 
 (async () => {
-  initMap('map', { center: [35, 30], zoom: 4 });
+  initMap('map', { center: [30, 20], zoom: 3 });
   TR.init();
+  // Legend
+  document.querySelector('.gm-map').insertAdjacentHTML('beforeend', buildLegend([
+    { icon: '✈️', label: 'מטוס (ADS-B)', color: '#ffd600' },
+    { icon: '🚢', label: 'כלי שיט', color: '#26a69a' },
+    { icon: '📦', label: 'ספינת מטען', color: '#26a69a' },
+    { icon: '⛽', label: 'מכלית', color: '#26a69a' },
+    { icon: '🛳', label: 'ספינת נוסעים', color: '#26a69a' },
+    { icon: '🛰', label: 'ISS / לוויין', color: '#7c4dff' },
+  ]));
   document.getElementById('statusText').textContent = 'מושך נתונים...';
   await TR.fetchAll();
   document.getElementById('statusText').textContent = `פעיל — ${TR.counts.aircraft} מטוסים, ${TR.counts.ships} ספינות`;

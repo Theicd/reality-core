@@ -7,9 +7,12 @@ const ALERTS = {
   history: [],
   lastUpdate: null,
 
+  OREF_URL: 'https://www.oref.org.il/WarningMessages/alert/alerts.json',
   PROXY_URLS: [
     'https://api.allorigins.win/raw?url=',
-    'https://api.codetabs.com/v1/proxy?quest='
+    'https://api.codetabs.com/v1/proxy?quest=',
+    'https://corsproxy.io/?',
+    'https://proxy.cors.sh/'
   ],
 
   ALERT_TYPES: {
@@ -28,26 +31,18 @@ const ALERTS = {
   },
 
   async fetchAlerts() {
-    // Try direct first (works locally)
+    // Oref blocks CORS — always use proxy
     let data = null;
-    try {
-      const r = await fetch('https://www.oref.org.il/WarningMessages/alert/alerts.json', {
-        signal: AbortSignal.timeout(5000),
-        headers: { 'Referer': 'https://www.oref.org.il/', 'X-Requested-With': 'XMLHttpRequest' }
-      });
-      if (r.ok) { const t = await r.text(); if (t.trim()) data = JSON.parse(t); }
-    } catch {}
-
-    // Proxy fallback
-    if (!data) {
-      for (const proxy of this.PROXY_URLS) {
-        try {
-          const r = await fetch(proxy + encodeURIComponent('https://www.oref.org.il/WarningMessages/alert/alerts.json'), {
-            signal: AbortSignal.timeout(6000)
-          });
-          if (r.ok) { const t = await r.text(); if (t.trim()) { data = JSON.parse(t); break; } }
-        } catch {}
-      }
+    for (const proxy of this.PROXY_URLS) {
+      try {
+        const url = proxy + encodeURIComponent(this.OREF_URL);
+        const r = await fetch(url, { signal: AbortSignal.timeout(6000) });
+        if (r.ok) {
+          const t = await r.text();
+          if (t.trim()) { data = JSON.parse(t); break; }
+          else { data = []; break; } // empty = no alerts
+        }
+      } catch {}
     }
 
     this.lastUpdate = new Date();

@@ -101,6 +101,18 @@ function mobTab(t) {
 (async () => {
   initMap('map', { center: [25, 20], zoom: 3 });
   WX.init();
+  // Legend
+  document.querySelector('.gm-map').insertAdjacentHTML('beforeend', buildLegend([
+    { icon: '🌍', label: 'רעידת אדמה (גודל בתוך העיגול)', color: '#ff9100' },
+    { icon: '🔥', label: 'שריפה (NASA FIRMS)', color: '#ff3d00' },
+    { icon: '⚠', label: 'אסון טבע (EONET/GDACS)', color: '#ffab00' },
+    { icon: '🌪', label: 'סופה / טורנדו', color: '#e040fb' },
+    { icon: '🌊', label: 'הצפה / צונאמי', color: '#29b6f6' },
+    { icon: '🌋', label: 'הר געש', color: '#ff6d00' },
+    { icon: '☀', label: 'מזג אוויר — שמשי', color: '#ffb300' },
+    { icon: '🌧', label: 'מזג אוויר — גשום', color: '#42a5f5' },
+    { icon: '⛈', label: 'סופת רעמים', color: '#7c4dff' },
+  ]));
   document.getElementById('statusText').textContent = 'מושך נתונים...';
   await WX.fetchAll();
   document.getElementById('statusText').textContent = `פעיל — ${WX.counts.earthquakes} רעידות, ${WX.counts.disasters} אסונות, ${WX.counts.fires} שריפות`;
