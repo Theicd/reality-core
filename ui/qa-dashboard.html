@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reality-Core — QA Dashboard</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0e14;color:#e0e0e0;font-family:'Segoe UI',Tahoma,sans-serif;min-height:100vh}
+.header{background:linear-gradient(135deg,#0d1117,#161b22);padding:16px 24px;border-bottom:1px solid #30363d;display:flex;align-items:center;justify-content:space-between}
+.header h1{font-size:20px;color:#00e5ff;text-shadow:0 0 8px rgba(0,229,255,.3)}
+.header .stats{display:flex;gap:16px;font-size:14px}
+.stat{padding:4px 12px;border-radius:12px;background:#161b22;border:1px solid #30363d}
+.stat.ok{border-color:#69f0ae;color:#69f0ae}
+.stat.fail{border-color:#ff5252;color:#ff5252}
+.stat.warn{border-color:#ffab00;color:#ffab00}
+.actions{padding:12px 24px;display:flex;gap:10px;flex-wrap:wrap}
+button{background:#1a237e;color:#e0e0e0;border:1px solid #3949ab;padding:8px 18px;border-radius:6px;cursor:pointer;font-size:13px;transition:all .2s}
+button:hover{background:#283593;border-color:#5c6bc0}
+button.primary{background:#00695c;border-color:#00897b}
+button.primary:hover{background:#00796b}
+button.danger{background:#b71c1c;border-color:#e53935}
+.tabs{display:flex;gap:2px;padding:0 24px;border-bottom:1px solid #30363d}
+.tab{padding:10px 20px;cursor:pointer;color:#8b949e;border-bottom:2px solid transparent;font-size:14px}
+.tab.active{color:#00e5ff;border-bottom-color:#00e5ff}
+.content{padding:16px 24px;max-height:calc(100vh - 200px);overflow-y:auto}
+.section{margin-bottom:20px}
+.section h2{font-size:16px;color:#8b949e;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid #21262d}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:10px}
+.card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px;transition:border-color .2s}
+.card:hover{border-color:#484f58}
+.card .name{font-weight:600;font-size:14px;margin-bottom:4px}
+.card .meta{font-size:12px;color:#8b949e;display:flex;gap:8px;flex-wrap:wrap}
+.card .meta span{display:inline-flex;align-items:center;gap:3px}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600}
+.badge.A{background:#1b5e20;color:#69f0ae}
+.badge.B{background:#0d47a1;color:#42a5f5}
+.badge.C{background:#e65100;color:#ffab00}
+.badge.D{background:#b71c1c;color:#ff5252}
+.badge.ok{background:#1b5e20;color:#69f0ae}
+.badge.err{background:#b71c1c;color:#ff5252}
+.badge.skip{background:#37474f;color:#90a4ae}
+.badge.free{background:#004d40;color:#4db6ac}
+.badge.key{background:#4a148c;color:#ce93d8}
+.badge.paid{background:#880e4f;color:#f48fb1}
+.test-row{display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid #21262d;font-size:13px}
+.test-row:last-child{border-bottom:none}
+.test-row .icon{font-size:16px}
+.test-row .name{flex:1}
+.test-row .detail{color:#8b949e;font-size:12px}
+.log-box{background:#0d1117;border:1px solid #21262d;border-radius:6px;padding:10px;font-family:'Cascadia Code','Fira Code',monospace;font-size:12px;max-height:400px;overflow-y:auto;white-space:pre-wrap;line-height:1.6}
+.log-box .info{color:#8b949e}
+.log-box .pass{color:#69f0ae}
+.log-box .fail{color:#ff5252}
+.log-box .warn{color:#ffab00}
+.progress{height:4px;background:#21262d;border-radius:2px;overflow:hidden;margin:8px 0}
+.progress .bar{height:100%;background:linear-gradient(90deg,#00e5ff,#69f0ae);transition:width .3s}
+.summary-bar{display:flex;gap:16px;padding:12px;background:#161b22;border-radius:8px;margin-bottom:16px}
+.summary-item{text-align:center;flex:1}
+.summary-item .num{font-size:28px;font-weight:700}
+.summary-item .lbl{font-size:11px;color:#8b949e}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:right;padding:8px;background:#161b22;border-bottom:2px solid #30363d;color:#8b949e;font-weight:600}
+td{padding:8px;border-bottom:1px solid #21262d}
+tr:hover td{background:#1c2128}
+#noData{text-align:center;padding:40px;color:#484f58;font-size:16px}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>🔬 Reality-Core — QA Dashboard</h1>
+  <div class="stats" id="headerStats">
+    <span class="stat">APIs: <span id="statTotal">120</span></span>
+    <span class="stat ok" id="statActive">פעילים: —</span>
+    <span class="stat warn" id="statTested">נבדקו: —</span>
+  </div>
+</div>
+
+<div class="actions">
+  <button class="primary" onclick="runQuickQA()">⚡ בדיקה מהירה</button>
+  <button class="primary" onclick="runFullQA()">🔬 בדיקה מלאה (כולל APIs)</button>
+  <button onclick="runHealthCheck()">🏥 Health Check — כל APIs</button>
+  <button onclick="runQuickHealth()">💚 Health Check — קריטיים בלבד</button>
+  <button onclick="showRegistry()">📋 קטלוג APIs</button>
+  <button class="danger" onclick="clearResults()">🗑 נקה</button>
+</div>
+
+<div class="tabs">
+  <div class="tab active" data-tab="results" onclick="switchTab('results')">📊 תוצאות</div>
+  <div class="tab" data-tab="registry" onclick="switchTab('registry')">📋 קטלוג (120)</div>
+  <div class="tab" data-tab="health" onclick="switchTab('health')">🏥 Health</div>
+  <div class="tab" data-tab="log" onclick="switchTab('log')">📝 לוג</div>
+</div>
+
+<div class="content" id="content">
+  <div id="noData">לחץ על אחד הכפתורים כדי להתחיל בדיקה</div>
+  <div id="tabResults" style="display:none"></div>
+  <div id="tabRegistry" style="display:none"></div>
+  <div id="tabHealth" style="display:none"></div>
+  <div id="tabLog" style="display:none"></div>
+</div>
+
+<script src="api-registry.js"></script>
+<script src="api-health-check.js"></script>
+<script src="qa-system.js"></script>
+<script>
+let currentTab = 'results';
+
+function switchTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+  document.querySelectorAll('[id^="tab"]').forEach(t => t.style.display = 'none');
+  const el = document.getElementById('tab' + tab.charAt(0).toUpperCase() + tab.slice(1));
+  if (el) el.style.display = '';
+  document.getElementById('noData').style.display = 'none';
+  if (tab === 'registry') renderRegistry();
+}
+
+function updateHeaderStats() {
+  const stats = getApiStats();
+  document.getElementById('statTotal').textContent = stats.total;
+  document.getElementById('statActive').textContent = `פעילים: ${stats.active}`;
+  const tested = Object.keys(getHealthResults()).length;
+  document.getElementById('statTested').textContent = `נבדקו: ${tested}`;
+}
+
+// ═══ Registry Tab ═══
+function renderRegistry() {
+  const stats = getApiStats();
+  let html = `<div class="summary-bar">
+    <div class="summary-item"><div class="num" style="color:#00e5ff">${stats.total}</div><div class="lbl">סה"כ APIs</div></div>
+    <div class="summary-item"><div class="num" style="color:#69f0ae">${stats.free}</div><div class="lbl">🟢 חינם</div></div>
+    <div class="summary-item"><div class="num" style="color:#ffab00">${stats.keyFree}</div><div class="lbl">🟡 מפתח חינמי</div></div>
+    <div class="summary-item"><div class="num" style="color:#ff5252">${stats.paid}</div><div class="lbl">🔴 בתשלום</div></div>
+    <div class="summary-item"><div class="num" style="color:#69f0ae">${stats.active}</div><div class="lbl">✓ פעילים</div></div>
+    <div class="summary-item"><div class="num" style="color:#42a5f5">${stats.testable}</div><div class="lbl">🔬 ניתנים לבדיקה</div></div>
+  </div>`;
+
+  for (const cat of stats.byCategory) {
+    const apis = getApisByCategory(cat.cat);
+    html += `<div class="section"><h2>${cat.label} (${cat.count})</h2><div class="grid">`;
+    for (const api of apis) {
+      const tierInfo = API_TIERS[api.tier] || {};
+      const hcResult = getHealthResults()[api.key];
+      const gradeHtml = hcResult ? `<span class="badge ${hcResult.grade}">${hcResult.grade}</span>` : '';
+      html += `<div class="card">
+        <div class="name">${tierInfo.badge || ''} ${api.name} ${gradeHtml}</div>
+        <div class="meta">
+          <span class="badge ${api.tier === 'free' ? 'free' : api.tier === 'key-free' ? 'key' : 'paid'}">${tierInfo.label || api.tier}</span>
+          ${api.active ? '<span class="badge ok">פעיל</span>' : '<span class="badge skip">לא פעיל</span>'}
+          ${api.cors ? '<span>CORS ✓</span>' : ''}
+          ${hcResult ? `<span>${hcResult.responseTime}ms</span>` : ''}
+        </span></div>
+        <div style="font-size:11px;color:#6e7681;margin-top:4px">${api.description || ''}</div>
+      </div>`;
+    }
+    html += '</div></div>';
+  }
+  document.getElementById('tabRegistry').innerHTML = html;
+}
+
+// ═══ Results Tab ═══
+function renderResults(report) {
+  if (!report) return;
+  const pct = report.percentage;
+  const barColor = pct >= 80 ? '#69f0ae' : pct >= 50 ? '#ffab00' : '#ff5252';
+  let html = `<div class="summary-bar">
+    <div class="summary-item"><div class="num" style="color:${barColor}">${pct}%</div><div class="lbl">ציון כללי</div></div>
+    <div class="summary-item"><div class="num" style="color:#69f0ae">${report.pass}</div><div class="lbl">✓ עברו</div></div>
+    <div class="summary-item"><div class="num" style="color:#ff5252">${report.fail}</div><div class="lbl">✗ נכשלו</div></div>
+    <div class="summary-item"><div class="num" style="color:#8b949e">${report.total}</div><div class="lbl">סה"כ</div></div>
+    <div class="summary-item"><div class="num" style="color:#42a5f5">${(report.duration/1000).toFixed(1)}s</div><div class="lbl">זמן</div></div>
+  </div>`;
+  html += `<div class="progress"><div class="bar" style="width:${pct}%;background:${barColor}"></div></div>`;
+
+  if (report.failures.length) {
+    html += '<div class="section"><h2>❌ כשלונות</h2>';
+    for (const f of report.failures) {
+      html += `<div class="test-row"><span class="icon">✗</span><span class="name" style="color:#ff5252">${f.name}</span><span class="detail">${f.details}</span></div>`;
+    }
+    html += '</div>';
+  }
+
+  html += '<div class="section"><h2>כל הבדיקות</h2>';
+  for (const r of report.results) {
+    html += `<div class="test-row"><span class="icon">${r.pass ? '✓' : '✗'}</span><span class="name" style="color:${r.pass ? '#69f0ae' : '#ff5252'}">${r.name}</span><span class="detail">${r.details}</span></div>`;
+  }
+  html += '</div>';
+
+  document.getElementById('tabResults').innerHTML = html;
+  switchTab('results');
+}
+
+// ═══ Health Tab ═══
+function renderHealth(report) {
+  if (!report) return;
+  let html = `<div class="summary-bar">
+    <div class="summary-item"><div class="num" style="color:#69f0ae">${report.summary.OK||0}</div><div class="lbl">OK</div></div>
+    <div class="summary-item"><div class="num" style="color:#42a5f5">${report.summary.PARTIAL||0}</div><div class="lbl">חלקי</div></div>
+    <div class="summary-item"><div class="num" style="color:#ff5252">${report.summary.HTTP_ERROR||0}</div><div class="lbl">HTTP Error</div></div>
+    <div class="summary-item"><div class="num" style="color:#ffab00">${report.summary.TIMEOUT||0}</div><div class="lbl">Timeout</div></div>
+    <div class="summary-item"><div class="num" style="color:#ff5252">${report.summary.NETWORK_ERROR||0}</div><div class="lbl">Network Error</div></div>
+  </div>`;
+  html += `<table><tr><th>#</th><th>API</th><th>סטטוס</th><th>HTTP</th><th>זמן</th><th>גודל</th><th>ציון</th></tr>`;
+  const sorted = Object.values(report.results).sort((a,b) => (a.name||'').localeCompare(b.name||''));
+  for (const r of sorted) {
+    const sc = r.status === 'OK' ? 'ok' : r.status === 'SKIP' ? 'skip' : 'err';
+    html += `<tr>
+      <td>${API_REGISTRY[r.key]?.id || ''}</td>
+      <td>${r.name}</td>
+      <td><span class="badge ${sc}">${r.status}</span></td>
+      <td>${r.httpCode || '—'}</td>
+      <td>${r.responseTime != null ? r.responseTime + 'ms' : '—'}</td>
+      <td>${r.dataSize ? (r.dataSize/1024).toFixed(1) + 'KB' : '—'}</td>
+      <td>${r.grade !== '-' ? `<span class="badge ${r.grade}">${r.grade}</span>` : '—'}</td>
+    </tr>`;
+  }
+  html += '</table>';
+  document.getElementById('tabHealth').innerHTML = html;
+  switchTab('health');
+}
+
+// ═══ Log Tab ═══
+function renderLog() {
+  const qaLog = QA.log || [];
+  const hcLog = typeof getHealthLog === 'function' ? getHealthLog() : [];
+  const all = [...qaLog.map(l => ({...l, src: 'QA'})), ...hcLog.map(l => ({ts: '', msg: l, level: 'info', src: 'HC'}))];
+  let html = '<div class="log-box">';
+  for (const e of all) {
+    const cls = e.level || 'info';
+    html += `<div class="${cls}">${e.ts ? `[${e.ts}]` : ''} ${e.msg}</div>`;
+  }
+  html += '</div>';
+  document.getElementById('tabLog').innerHTML = html;
+}
+
+// ═══ Actions ═══
+async function runQuickQA() {
+  document.getElementById('noData').style.display = 'none';
+  document.getElementById('tabResults').innerHTML = '<div style="text-align:center;padding:40px">⏳ מריץ בדיקה מהירה...</div>';
+  switchTab('results');
+  const report = QA.runQuick();
+  renderResults(report);
+  renderLog();
+  updateHeaderStats();
+}
+
+async function runFullQA() {
+  document.getElementById('noData').style.display = 'none';
+  document.getElementById('tabResults').innerHTML = '<div style="text-align:center;padding:40px">⏳ מריץ בדיקה מלאה (כולל APIs)... ייקח עד 2 דקות</div>';
+  switchTab('results');
+  const report = await QA.runAll();
+  renderResults(report);
+  renderLog();
+  updateHeaderStats();
+}
+
+async function runHealthCheck() {
+  document.getElementById('noData').style.display = 'none';
+  document.getElementById('tabHealth').innerHTML = '<div style="text-align:center;padding:40px">⏳ בודק את כל ה-APIs... ייקח עד 3 דקות</div>';
+  switchTab('health');
+  const report = await runFullHealthCheck({
+    parallel: 5,
+    onProgress: ({done, total}) => {
+      document.getElementById('tabHealth').innerHTML = `<div style="text-align:center;padding:40px">⏳ ${done}/${total} APIs נבדקו...</div>`;
+    }
+  });
+  renderHealth(report);
+  renderLog();
+  updateHeaderStats();
+}
+
+async function runQuickHealth() {
+  document.getElementById('noData').style.display = 'none';
+  document.getElementById('tabHealth').innerHTML = '<div style="text-align:center;padding:40px">⏳ בודק APIs קריטיים...</div>';
+  switchTab('health');
+  const results = await quickHealthCheck();
+  const report = {
+    summary: { OK: 0, PARTIAL: 0, HTTP_ERROR: 0, TIMEOUT: 0, NETWORK_ERROR: 0 },
+    results: {}
+  };
+  for (const r of results) {
+    report.results[r.key] = r;
+    report.summary[r.status] = (report.summary[r.status]||0) + 1;
+  }
+  renderHealth(report);
+  renderLog();
+  updateHeaderStats();
+}
+
+function showRegistry() { switchTab('registry'); }
+
+function clearResults() {
+  QA.results = []; QA.log = [];
+  document.getElementById('tabResults').innerHTML = '';
+  document.getElementById('tabHealth').innerHTML = '';
+  document.getElementById('tabLog').innerHTML = '';
+  document.getElementById('noData').style.display = '';
+  updateHeaderStats();
+}
+
+// Init
+updateHeaderStats();
+renderRegistry();
+</script>
+</body>
+</html>

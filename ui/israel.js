@@ -2157,6 +2157,159 @@ async function fetchPublicShips() {
   }
 }
 
+// ═══════════════════════════════════════════════════════
+// NEW DATA SOURCES — free APIs
+// ═══════════════════════════════════════════════════════
+
+async function fetchPublicDisasters() {
+  const t0 = performance.now();
+  _log('Disasters', '→ Fetching NASA EONET + GDACS...');
+  const items = [];
+
+  // NASA EONET — natural events
+  try {
+    const r = await fetch('https://eonet.gsfc.nasa.gov/api/v3/events?status=open&limit=30', { signal: AbortSignal.timeout(10000) });
+    _log('Disasters', `← EONET HTTP ${r.status}`);
+    if (r.ok) {
+      const d = await r.json();
+      (d.events || []).forEach(ev => {
+        const geo = ev.geometry?.[0];
+        if (!geo?.coordinates) return;
+        const [lon, lat] = geo.coordinates;
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+        items.push({
+          id: ev.id, title: ev.title, category: ev.categories?.[0]?.title || '',
+          geo: { lat, lon }, date: geo.date || ev.geometry?.[0]?.date,
+          source: 'NASA-EONET', link: ev.link || ''
+        });
+      });
+      _log('Disasters', `✓ EONET: ${items.length} events`);
+    }
+  } catch(e) { _logWarn('Disasters', `✗ EONET: ${e?.message||e}`); }
+
+  // GDACS — global disaster alerts
+  try {
+    const r = await fetch('https://www.gdacs.org/gdacsapi/api/events/geteventlist/SEARCH?eventlist=EQ;TC;FL;VO;DR;WF&alertlevel=Green;Orange;Red&limit=20', { signal: AbortSignal.timeout(10000) });
+    _log('Disasters', `← GDACS HTTP ${r.status}`);
+    if (r.ok) {
+      const d = await r.json();
+      const features = d.features || [];
+      let added = 0;
+      features.forEach(f => {
+        const p = f.properties || {};
+        const coords = f.geometry?.coordinates;
+        if (!coords || !Number.isFinite(coords[1]) || !Number.isFinite(coords[0])) return;
+        items.push({
+          id: p.eventid || `gdacs-${added}`, title: p.name || p.eventtype || '',
+          category: p.eventtype || '', alertLevel: p.alertlevel || '',
+          geo: { lat: coords[1], lon: coords[0] }, date: p.fromdate || '',
+          source: 'GDACS', severity: p.severity?.severitytext || ''
+        });
+        added++;
+      });
+      _log('Disasters', `✓ GDACS: ${added} events`);
+    }
+  } catch(e) { _logWarn('Disasters', `✗ GDACS: ${e?.message||e}`); }
+
+  if (items.length) {
+    live.disasters = { timestamp: new Date().toISOString(), items };
+    _log('Disasters', `✓ Total: ${items.length} events (${(performance.now()-t0).toFixed(0)}ms)`);
+  } else {
+    _logWarn('Disasters', `✗ No disaster data (${(performance.now()-t0).toFixed(0)}ms)`);
+  }
+}
+
+async function fetchPublicFires() {
+  const t0 = performance.now();
+  _log('Fires', '→ Fetching NASA FIRMS...');
+  try {
+    const r = await fetch('https://firms.modaps.eosdis.nasa.gov/api/area/csv/DEMO_KEY/VIIRS_SNPP_NRT/world/1', { signal: AbortSignal.timeout(15000) });
+    _log('Fires', `← FIRMS HTTP ${r.status}`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const text = await r.text();
+    const lines = text.trim().split('\n');
+    if (lines.length < 2) { _logWarn('Fires', '✗ No fire data'); return; }
+    const header = lines[0].split(',');
+    const latIdx = header.indexOf('latitude');
+    const lonIdx = header.indexOf('longitude');
+    const brightIdx = header.indexOf('bright_ti4');
+    const confIdx = header.indexOf('confidence');
+    const dateIdx = header.indexOf('acq_date');
+    const items = [];
+    for (let i = 1; i < Math.min(lines.length, 500); i++) {
+      const cols = lines[i].split(',');
+      const lat = parseFloat(cols[latIdx]);
+      const lon = parseFloat(cols[lonIdx]);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+      items.push({
+        geo: { lat, lon }, brightness: parseFloat(cols[brightIdx]) || 0,
+        confidence: cols[confIdx] || '', date: cols[dateIdx] || '', source: 'NASA-FIRMS'
+      });
+    }
+    if (items.length) {
+      live.fires = { timestamp: new Date().toISOString(), items };
+      _log('Fires', `✓ ${items.length} hotspots (${(performance.now()-t0).toFixed(0)}ms)`);
+    }
+  } catch(e) { _logWarn('Fires', `✗ FIRMS: ${e?.message||e} (${(performance.now()-t0).toFixed(0)}ms)`); }
+}
+
+async function fetchPublicEMSC() {
+  const t0 = performance.now();
+  _log('EMSC', '→ Fetching European seismic data...');
+  try {
+    const r = await fetch('https://www.seismicportal.eu/fdsnws/event/1/query?limit=30&format=json&minmag=3', { signal: AbortSignal.timeout(10000) });
+    _log('EMSC', `← SeismicPortal HTTP ${r.status}`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const d = await r.json();
+    const features = d.features || [];
+    const items = features.map(f => {
+      const p = f.properties || {};
+      const coords = f.geometry?.coordinates || [];
+      return {
+        id: f.id || '', mag: p.mag, place: p.flynn_region || p.auth || '',
+        geo: { lat: coords[1], lon: coords[0], depth: coords[2] },
+        time: p.time || '', source: 'EMSC'
+      };
+    }).filter(e => Number.isFinite(e.geo.lat) && Number.isFinite(e.geo.lon));
+    if (items.length) {
+      live.emsc_earthquakes = { timestamp: new Date().toISOString(), items };
+      _log('EMSC', `✓ ${items.length} earthquakes (${(performance.now()-t0).toFixed(0)}ms)`);
+    }
+  } catch(e) { _logWarn('EMSC', `✗ ${e?.message||e} (${(performance.now()-t0).toFixed(0)}ms)`); }
+}
+
+async function fetchPublicGlobalAlerts() {
+  const t0 = performance.now();
+  _log('GlobalAlerts', '→ Fetching NWS + MeteoAlarm...');
+  const items = [];
+
+  // NWS US alerts
+  try {
+    const r = await fetch('https://api.weather.gov/alerts/active?limit=20', {
+      signal: AbortSignal.timeout(8000), headers: { 'User-Agent': 'RealityCore/1.0' }
+    });
+    _log('GlobalAlerts', `← NWS HTTP ${r.status}`);
+    if (r.ok) {
+      const d = await r.json();
+      (d.features || []).forEach(f => {
+        const p = f.properties || {};
+        items.push({
+          id: p.id, headline: p.headline || '', event: p.event || '',
+          severity: p.severity || '', urgency: p.urgency || '',
+          area: p.areaDesc || '', source: 'NWS-US',
+          effective: p.effective, expires: p.expires
+        });
+      });
+      _log('GlobalAlerts', `✓ NWS: ${d.features?.length||0} alerts`);
+    }
+  } catch(e) { _logWarn('GlobalAlerts', `✗ NWS: ${e?.message||e}`); }
+
+  if (items.length) {
+    live.global_alerts = { timestamp: new Date().toISOString(), items };
+    _log('GlobalAlerts', `✓ Total: ${items.length} alerts (${(performance.now()-t0).toFixed(0)}ms)`);
+  }
+}
+
 async function _corsFetch(url, timeout = 10000) {
   const enc = encodeURIComponent(url);
   const proxyNames = [];
@@ -2258,9 +2411,14 @@ async function standaloneRefresh() {
   const t0 = performance.now();
   _log('Refresh', '=== Standalone refresh cycle START ===');
   try {
-    await Promise.all([fetchPublicEarthquakes(), fetchPublicWeather(), fetchPublicMarine(), fetchPublicISS(), fetchPublicRedAlert(), fetchPublicSpaceWeather(), fetchPublicAviation(), fetchPublicShips(), fetchPublicSatellites()]);
+    await Promise.all([
+      fetchPublicEarthquakes(), fetchPublicWeather(), fetchPublicMarine(), fetchPublicISS(),
+      fetchPublicRedAlert(), fetchPublicSpaceWeather(), fetchPublicAviation(), fetchPublicShips(),
+      fetchPublicSatellites(), fetchPublicDisasters(), fetchPublicFires(), fetchPublicEMSC(),
+      fetchPublicGlobalAlerts()
+    ]);
     refreshComposite();
-    _log('Refresh', `=== Cycle DONE in ${(performance.now()-t0).toFixed(0)}ms | EQ:${live.earthquake?.items?.length||0} WX:${live.weather?.items?.length||0} Marine:${live.marine?.items?.length||0} Aviation:${live.aviation?.items?.length||0} Ships:${live.ships?.items?.length||0} Sats:${live.satellites?.items?.length||0} ===`);
+    _log('Refresh', `=== Cycle DONE in ${(performance.now()-t0).toFixed(0)}ms | EQ:${live.earthquake?.items?.length||0} WX:${live.weather?.items?.length||0} Marine:${live.marine?.items?.length||0} Aviation:${live.aviation?.items?.length||0} Ships:${live.ships?.items?.length||0} Sats:${live.satellites?.items?.length||0} Disasters:${live.disasters?.items?.length||0} Fires:${live.fires?.items?.length||0} EMSC:${live.emsc_earthquakes?.items?.length||0} Alerts:${live.global_alerts?.items?.length||0} ===`);
   } catch(e) { _logErr('Refresh', `Cycle failed: ${e?.message||e}`); }
   _standaloneRunning = false;
 }
@@ -2306,14 +2464,20 @@ async function prime() {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
-  console.log('%c███ REALITY-CORE v36 — Starting... ███', 'color:#00e5ff;font-size:16px;font-weight:bold;text-shadow:0 0 8px #00e5ff');
+  console.log('%c███ REALITY-CORE v37 — Starting... ███', 'color:#00e5ff;font-size:16px;font-weight:bold;text-shadow:0 0 8px #00e5ff');
   _log('Boot', `UA: ${navigator.userAgent.substring(0,80)}`);
   _log('Boot', `URL: ${location.href}`);
+  if (typeof getApiStats === 'function') {
+    const s = getApiStats();
+    _log('Boot', `API Registry: ${s.total} APIs (${s.active} active, ${s.free} free, ${s.testable} testable)`);
+  }
   initCesium();
   _log('Boot', '✓ Cesium initialized');
   setTimeout(initEntityClick, 2000);
   await prime();
   if (!_standalone) initWebSocket();
+  // Auto QA quick check after 15s
+  setTimeout(() => { if (typeof QA !== 'undefined') { _log('QA', '→ Running auto quick check...'); const r = QA.runQuick(); _log('QA', `✓ ${r.pass}/${r.total} passed (${r.percentage}%)`); } }, 15000);
   const _initSound = () => { window.soundSystem?.init(); ['click','keydown','touchstart','pointerdown'].forEach(e => document.removeEventListener(e, _initSound)); };
   ['click','keydown','touchstart','pointerdown'].forEach(e => document.addEventListener(e, _initSound, { once: true }));
 
