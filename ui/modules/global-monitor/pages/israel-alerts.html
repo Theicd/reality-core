@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reality-Core — מערכת התרעות ישראל</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="../css/global-style.css">
+<link rel="stylesheet" href="../css/mobile.css">
+<style>
+.custom-marker{background:none;border:none;}
+.alert-active { background: linear-gradient(135deg, rgba(255,23,68,.12), rgba(255,23,68,.04)) !important; }
+</style>
+</head>
+<body>
+
+<div class="gm-header">
+  <h1>🚨 מערכת התרעות ישראל</h1>
+  <div class="nav">
+    <a href="weather-world.html">☁ מזג אוויר</a>
+    <a href="transport-world.html">✈ תחבורה</a>
+    <a href="israel-alerts.html" class="active">🚨 התרעות</a>
+  </div>
+  <div class="gm-status">
+    <span class="dot on" id="statusDot"></span>
+    <span id="statusText">טוען...</span>
+  </div>
+</div>
+
+<div class="gm-layout fullscreen">
+  <!-- Alert Panel -->
+  <div class="gm-alert-panel" id="alertPanel">
+    <div style="text-align:center;padding:12px;color:var(--muted)">ממתין לבדיקת מקורות...</div>
+  </div>
+
+  <!-- Map of Israel -->
+  <div class="gm-map">
+    <div id="map"></div>
+  </div>
+
+  <!-- Bottom — Event Log -->
+  <div class="gm-bottom" style="max-height:200px">
+    <div style="font-size:12px;color:var(--muted);margin-bottom:4px;display:flex;justify-content:space-between;align-items:center">
+      <span>📋 יומן אירועים</span>
+      <span id="updateTime" style="font-size:10px">—</span>
+    </div>
+    <div class="ticker" id="alertLog"></div>
+    <div class="mob-tabs">
+      <button class="mob-tab active" onclick="mobTab()"><span class="icon">🗺</span>מפה</button>
+      <button class="mob-tab" onclick="ALERTS.fetchAlerts()"><span class="icon">🔄</span>רענן</button>
+      <button class="mob-tab" onclick="QA_ENGINE.runAll()"><span class="icon">🔬</span>QA</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="../../../api-registry.js"></script>
+<script src="../../../api-validator.js"></script>
+<script src="../js/api-loader.js"></script>
+<script src="../js/map-core.js"></script>
+<script src="../js/icon-engine.js"></script>
+<script src="../js/alerts-engine.js"></script>
+<script src="../js/qa-engine.js"></script>
+<script>
+function mobTab() {}
+
+(async () => {
+  initMap('map', { center: [31.5, 34.8], zoom: 8 });
+  ALERTS.init();
+
+  document.getElementById('statusText').textContent = 'בודק מקורות...';
+  await ALERTS.fetchAlerts();
+  await ALERTS.fetchGlobalAlerts();
+
+  const count = ALERTS.current.length;
+  document.getElementById('statusText').textContent = count > 0
+    ? `⚠ ${count} התרעות פעילות`
+    : '✅ אין התרעות';
+  document.getElementById('statusDot').className = count > 0 ? 'dot off pulse' : 'dot on';
+  document.getElementById('updateTime').textContent = `עדכון: ${new Date().toLocaleTimeString('he-IL')}`;
+
+  // Auto refresh — every 5 seconds for alerts
+  setInterval(async () => {
+    await ALERTS.fetchAlerts();
+    const n = ALERTS.current.length;
+    document.getElementById('statusText').textContent = n > 0 ? `⚠ ${n} התרעות פעילות` : '✅ אין התרעות';
+    document.getElementById('statusDot').className = n > 0 ? 'dot off pulse' : 'dot on';
+    document.getElementById('updateTime').textContent = `עדכון: ${new Date().toLocaleTimeString('he-IL')}`;
+  }, 5000);
+
+  // GDACS global alerts — every 5 minutes
+  setInterval(() => ALERTS.fetchGlobalAlerts(), 300000);
+})();
+</script>
+</body>
+</html>

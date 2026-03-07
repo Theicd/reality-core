@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reality-Core — ניטור מזג אוויר ואירועי טבע</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="../css/global-style.css">
+<link rel="stylesheet" href="../css/mobile.css">
+<style>.custom-marker{background:none;border:none;}</style>
+</head>
+<body>
+
+<div class="gm-header">
+  <h1>🌍 ניטור מזג אוויר ואירועי טבע</h1>
+  <div class="nav">
+    <a href="weather-world.html" class="active">☁ מזג אוויר</a>
+    <a href="transport-world.html">✈ תחבורה</a>
+    <a href="israel-alerts.html">🚨 התרעות</a>
+  </div>
+  <div class="gm-status">
+    <span class="dot on" id="statusDot"></span>
+    <span id="statusText">טוען...</span>
+  </div>
+  <button class="mob-menu-btn" onclick="toggleMobPanel('left')" style="background:none;border:1px solid var(--border);color:var(--text);border-radius:4px;padding:4px 8px;font-size:14px">☰</button>
+</div>
+
+<div class="gm-layout">
+  <!-- Left Panel — Layer Controls -->
+  <div class="gm-left" id="leftPanel">
+    <div class="layer-group">
+      <h3>☁ מזג אוויר</h3>
+      <label class="layer-toggle"><input type="checkbox" checked onchange="toggleLayer('weather',this.checked)">🌡 טמפרטורה ורוח <span class="cnt" data-count="weather">0</span></label>
+    </div>
+    <div class="layer-group">
+      <h3>🌍 רעידות אדמה</h3>
+      <label class="layer-toggle"><input type="checkbox" checked onchange="toggleLayer('earthquakes',this.checked)">📊 USGS + EMSC <span class="cnt" data-count="earthquakes">0</span></label>
+    </div>
+    <div class="layer-group">
+      <h3>🌎 אסונות טבע</h3>
+      <label class="layer-toggle"><input type="checkbox" checked onchange="toggleLayer('disasters',this.checked)">⚠ NASA EONET + GDACS <span class="cnt" data-count="disasters">0</span></label>
+    </div>
+    <div class="layer-group">
+      <h3>🔥 שריפות</h3>
+      <label class="layer-toggle"><input type="checkbox" checked onchange="toggleLayer('fires',this.checked)">🔥 NASA FIRMS <span class="cnt" data-count="fires">0</span></label>
+    </div>
+    <div class="layer-group">
+      <h3>☀ פעילות שמש</h3>
+      <div id="solarInfo" class="info-card" style="font-size:12px">טוען...</div>
+    </div>
+    <div style="margin-top:12px">
+      <button onclick="WX.fetchAll()" style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--cyan);padding:6px;border-radius:4px;cursor:pointer;font-size:12px">🔄 רענן נתונים</button>
+      <button onclick="QA_ENGINE.runAll()" style="width:100%;margin-top:4px;background:var(--bg);border:1px solid var(--border);color:var(--muted);padding:6px;border-radius:4px;cursor:pointer;font-size:12px">🔬 QA</button>
+    </div>
+  </div>
+
+  <!-- Map -->
+  <div class="gm-map">
+    <div id="map"></div>
+  </div>
+
+  <!-- Right Panel — Sensor Data -->
+  <div class="gm-right" id="rightPanel">
+    <h3 style="font-size:13px;color:var(--muted);margin-bottom:8px">📊 נתוני חיישנים</h3>
+    <div id="sensorData">
+      <div class="info-card"><div class="title">ממתין לנתונים...</div></div>
+    </div>
+  </div>
+
+  <!-- Bottom Bar — Live Events -->
+  <div class="gm-bottom">
+    <div style="font-size:11px;color:var(--muted);margin-bottom:4px">📡 אירועים חיים</div>
+    <div class="ticker" id="eventTicker"></div>
+    <!-- Mobile tabs -->
+    <div class="mob-tabs">
+      <button class="mob-tab active" onclick="mobTab('map')"><span class="icon">🗺</span>מפה</button>
+      <button class="mob-tab" onclick="toggleMobPanel('left')"><span class="icon">☁</span>שכבות</button>
+      <button class="mob-tab" onclick="toggleMobPanel('right')"><span class="icon">📊</span>נתונים</button>
+      <button class="mob-tab" onclick="QA_ENGINE.runAll()"><span class="icon">🔬</span>QA</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="../../../api-registry.js"></script>
+<script src="../../../api-validator.js"></script>
+<script src="../js/api-loader.js"></script>
+<script src="../js/map-core.js"></script>
+<script src="../js/icon-engine.js"></script>
+<script src="../js/weather-engine.js"></script>
+<script src="../js/qa-engine.js"></script>
+<script>
+function toggleMobPanel(side) {
+  const el = document.getElementById(side === 'left' ? 'leftPanel' : 'rightPanel');
+  el.classList.toggle('mob-show');
+}
+function mobTab(t) {
+  document.querySelectorAll('.gm-left,.gm-right').forEach(e => e.classList.remove('mob-show'));
+}
+
+(async () => {
+  initMap('map', { center: [25, 20], zoom: 3 });
+  WX.init();
+  document.getElementById('statusText').textContent = 'מושך נתונים...';
+  await WX.fetchAll();
+  document.getElementById('statusText').textContent = `פעיל — ${WX.counts.earthquakes} רעידות, ${WX.counts.disasters} אסונות, ${WX.counts.fires} שריפות`;
+  document.getElementById('statusDot').className = 'dot on';
+  // Auto refresh
+  setInterval(() => WX.fetchEarthquakes(), 300000);
+  setInterval(() => WX.fetchDisasters(), 1800000);
+  setInterval(() => WX.fetchFires(), 3600000);
+  setInterval(() => WX.fetchSolar(), 900000);
+  setInterval(() => WX.fetchWeather(), 600000);
+})();
+</script>
+</body>
+</html>

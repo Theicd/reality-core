@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reality-Core — ניטור כלי תחבורה ועצמים נעים</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="../css/global-style.css">
+<link rel="stylesheet" href="../css/mobile.css">
+<style>.custom-marker{background:none;border:none;}</style>
+</head>
+<body>
+
+<div class="gm-header">
+  <h1>✈ ניטור כלי תחבורה ועצמים נעים</h1>
+  <div class="nav">
+    <a href="weather-world.html">☁ מזג אוויר</a>
+    <a href="transport-world.html" class="active">✈ תחבורה</a>
+    <a href="israel-alerts.html">🚨 התרעות</a>
+  </div>
+  <div class="gm-status">
+    <span class="dot on" id="statusDot"></span>
+    <span id="statusText">טוען...</span>
+  </div>
+  <button class="mob-menu-btn" onclick="toggleMobPanel('left')" style="background:none;border:1px solid var(--border);color:var(--text);border-radius:4px;padding:4px 8px;font-size:14px">☰</button>
+</div>
+
+<div class="gm-layout">
+  <!-- Left Panel — Layer Controls -->
+  <div class="gm-left" id="leftPanel">
+    <div class="layer-group">
+      <h3>✈ מטוסים</h3>
+      <label class="layer-toggle"><input type="checkbox" checked onchange="toggleLayer('aircraft',this.checked)">ADS-B / OpenSky <span class="cnt" data-count="aircraft">0</span></label>
+    </div>
+    <div class="layer-group">
+      <h3>🚢 ספינות</h3>
+      <label class="layer-toggle"><input type="checkbox" checked onchange="toggleLayer('ships',this.checked)">Digitraffic AIS <span class="cnt" data-count="ships">0</span></label>
+    </div>
+    <div class="layer-group">
+      <h3>🛰 לוויינים</h3>
+      <label class="layer-toggle"><input type="checkbox" checked onchange="toggleLayer('satellites',this.checked)">ISS + לוויינים <span class="cnt" data-count="satellites">0</span></label>
+      <div id="issInfo" style="font-size:11px;color:var(--muted);margin-top:4px">—</div>
+    </div>
+    <div class="layer-group">
+      <h3>👨‍🚀 אסטרונאוטים בחלל</h3>
+      <div id="astronauts" style="font-size:11px"></div>
+    </div>
+    <div style="margin-top:12px">
+      <button onclick="TR.fetchAll()" style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--cyan);padding:6px;border-radius:4px;cursor:pointer;font-size:12px">🔄 רענן נתונים</button>
+      <button onclick="QA_ENGINE.runAll()" style="width:100%;margin-top:4px;background:var(--bg);border:1px solid var(--border);color:var(--muted);padding:6px;border-radius:4px;cursor:pointer;font-size:12px">🔬 QA</button>
+    </div>
+  </div>
+
+  <!-- Map -->
+  <div class="gm-map">
+    <div id="map"></div>
+  </div>
+
+  <!-- Right Panel — Selected Object Info -->
+  <div class="gm-right" id="rightPanel">
+    <h3 style="font-size:13px;color:var(--muted);margin-bottom:8px">📋 פרטי אובייקט</h3>
+    <div id="selectedInfo">
+      <div class="info-card"><div class="title">לחץ על אובייקט במפה</div></div>
+    </div>
+    <h3 style="font-size:13px;color:var(--muted);margin:12px 0 8px">📊 סטטיסטיקה</h3>
+    <div class="info-card">
+      <div class="row"><span>✈ מטוסים</span><span class="val" data-count="aircraft">0</span></div>
+      <div class="row"><span>🚢 ספינות</span><span class="val" data-count="ships">0</span></div>
+      <div class="row"><span>🛰 לוויינים</span><span class="val" data-count="satellites">0</span></div>
+    </div>
+  </div>
+
+  <!-- Bottom Bar -->
+  <div class="gm-bottom">
+    <div style="font-size:11px;color:var(--muted);margin-bottom:4px">📡 עצמים נעים — עדכון כל 15–60 שניות</div>
+    <div class="ticker" id="eventTicker"></div>
+    <div class="mob-tabs">
+      <button class="mob-tab active" onclick="mobTab('map')"><span class="icon">🗺</span>מפה</button>
+      <button class="mob-tab" onclick="toggleMobPanel('left')"><span class="icon">📋</span>שכבות</button>
+      <button class="mob-tab" onclick="toggleMobPanel('right')"><span class="icon">📊</span>מידע</button>
+      <button class="mob-tab" onclick="QA_ENGINE.runAll()"><span class="icon">🔬</span>QA</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="../../../api-registry.js"></script>
+<script src="../../../api-validator.js"></script>
+<script src="../js/api-loader.js"></script>
+<script src="../js/map-core.js"></script>
+<script src="../js/icon-engine.js"></script>
+<script src="../js/transport-engine.js"></script>
+<script src="../js/qa-engine.js"></script>
+<script>
+function toggleMobPanel(side) {
+  const el = document.getElementById(side === 'left' ? 'leftPanel' : 'rightPanel');
+  el.classList.toggle('mob-show');
+}
+function mobTab(t) {
+  document.querySelectorAll('.gm-left,.gm-right').forEach(e => e.classList.remove('mob-show'));
+}
+
+(async () => {
+  initMap('map', { center: [35, 30], zoom: 4 });
+  TR.init();
+  document.getElementById('statusText').textContent = 'מושך נתונים...';
+  await TR.fetchAll();
+  document.getElementById('statusText').textContent = `פעיל — ${TR.counts.aircraft} מטוסים, ${TR.counts.ships} ספינות`;
+  document.getElementById('statusDot').className = 'dot on';
+  // Auto refresh — respect rate limits
+  setInterval(() => TR.fetchAircraft(), 15000);  // 15s — adsb-api generous
+  setInterval(() => TR.fetchShips(), 60000);      // 60s — digitraffic generous
+  setInterval(() => TR.fetchISS(), 30000);        // 30s — iss-location 1/sec
+  setInterval(() => TR.fetchSatellites(), 3600000); // 1h — open-notify
+})();
+</script>
+</body>
+</html>

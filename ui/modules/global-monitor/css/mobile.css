@@ -1,0 +1,36 @@
+/* mobile.css — Responsive for Global Monitor */
+@media (max-width: 768px) {
+  :root { --panel-w: 0px; --bottom-h: 60px; }
+  .gm-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr var(--bottom-h);
+    grid-template-areas: "map" "bottom";
+  }
+  .gm-left, .gm-right { display: none; }
+  .gm-left.mob-show, .gm-right.mob-show {
+    display: block; position: fixed; top: var(--header-h); bottom: 60px; width: 85vw; max-width: 340px;
+    z-index: 900; box-shadow: 4px 0 20px rgba(0,0,0,.5);
+  }
+  .gm-left.mob-show { left: 0; }
+  .gm-right.mob-show { right: 0; }
+  .gm-bottom { padding: 0; }
+  .mob-tabs {
+    display: flex; height: 100%; align-items: center; justify-content: space-around;
+    background: var(--bg2); border-top: 1px solid var(--border);
+  }
+  .mob-tab {
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    color: var(--muted); font-size: 10px; padding: 6px 12px; cursor: pointer;
+    border: none; background: none; transition: color .15s;
+  }
+  .mob-tab .icon { font-size: 18px; }
+  .mob-tab.active { color: var(--cyan); }
+  .gm-header h1 { font-size: 13px; }
+  .gm-header .nav { display: none; }
+  .mob-menu-btn { display: block !important; }
+  .gm-layout.fullscreen { grid-template-rows: auto 1fr 60px; }
+}
+@media (min-width: 769px) {
+  .mob-tabs { display: none; }
+  .mob-menu-btn { display: none !important; }
+}
